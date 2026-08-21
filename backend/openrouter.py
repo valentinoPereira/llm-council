@@ -1,140 +1,136 @@
-"""OpenRouter API client for making LLM requests."""
+"""OpenRouter API access via the official `openrouter` Python SDK.
+
+This module is a thin adapter over the SDK so the rest of the backend only
+deals with plain dicts. The SDK owns authentication, request validation,
+response typing, connection pooling, timeouts, and retries.
+"""
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
-import httpx
+from openrouter import OpenRouter
+from openrouter.utils.retries import BackoffStrategy, RetryConfig
 
-from .config import OPENROUTER_API_KEY, OPENROUTER_API_URL
+from .config import OPENROUTER_API_KEY
 
-# Module-level shared client. Initialized lazily on first use and replaced
-# (if needed) by the FastAPI lifespan handler. Reusing a single client across
-# requests enables HTTP keep-alive / connection pooling, which avoids the
-# per-request TCP + TLS handshake cost to openrouter.ai (~10 handshakes per
-# user message in the council flow).
-_client: Optional[httpx.AsyncClient] = None
+# Module-level shared SDK client. Initialized lazily on first use and closed
+# by the FastAPI lifespan handler. The SDK's underlying httpx.AsyncClient
+# provides HTTP keep-alive / connection pooling across requests.
+_client: Optional[OpenRouter] = None
 
-# Default pool sizes are generous enough to run the 4-model stage 1/2 fan-out
-# in parallel plus the chairman and title-generation requests.
-_DEFAULT_LIMITS = httpx.Limits(
-    max_connections=20,
-    max_keepalive_connections=10,
-    keepalive_expiry=30.0,
+# Default request timeout (in seconds), mirroring the previous httpx setup:
+# generous overall timeout for slow reasoning models.
+_DEFAULT_TIMEOUT_S = 120.0
+
+# Retry policy (SDK-managed):
+# - Retry on 429 (rate limited) and 5xx (transient server errors).
+# - Retry on connection-level network errors.
+# - Exponential backoff starting at 500ms, bounded to ~2.5s total, which
+#   approximates the previous "max 2 attempts" policy.
+# Note: unlike the previous hand-rolled client, the SDK cannot distinguish
+# connect timeouts from read timeouts, so a read timeout may be retried once.
+_RETRY_CONFIG = RetryConfig(
+    strategy="backoff",
+    backoff=BackoffStrategy(
+        initial_interval=500,
+        max_interval=2000,
+        exponent=2.0,
+        max_elapsed_time=2500,
+    ),
+    retry_connection_errors=True,
+    status_codes_override=["429", "5XX"],
 )
 
 
-def get_client() -> httpx.AsyncClient:
-    """Return the shared AsyncClient, creating it on first use."""
+def get_client() -> OpenRouter:
+    """Return the shared SDK client, creating it on first use."""
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(
-            timeout=httpx.Timeout(120.0, connect=10.0),
-            limits=_DEFAULT_LIMITS,
+        _client = OpenRouter(
+            api_key=OPENROUTER_API_KEY,
+            timeout_ms=int(_DEFAULT_TIMEOUT_S * 1000),
+            retry_config=_RETRY_CONFIG,
         )
     return _client
 
 
 async def close_client() -> None:
-    """Close the shared AsyncClient. Safe to call multiple times."""
+    """Close the shared SDK client. Safe to call multiple times."""
     global _client
     if _client is not None:
-        await _client.aclose()
+        async_client = _client.sdk_configuration.async_client
+        if async_client is not None:
+            await async_client.aclose()
         _client = None
 
 
-def _build_headers() -> Dict[str, str]:
-    return {
-        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-
-async def _post_with_retry(
-    payload: Dict[str, Any],
-    *,
-    timeout: float,
-    max_attempts: int = 2,
-) -> httpx.Response:
-    """
-    POST with a single retry on transient failures. Each attempt has its own
-    timeout.
-
-    Retry policy:
-    - Connection failures (network errors, connect timeouts): safe to retry,
-      the request never reached the server.
-    - 429 (rate limited) and 5xx: transient server-side, safe to retry.
-    - Read/write timeouts are NOT retried: the server may already have
-      processed the request, and a retry would pay for a duplicate
-      generation.
-    """
-    client = get_client()
-    for attempt in range(max_attempts):
-        try:
-            response = await client.post(
-                OPENROUTER_API_URL,
-                headers=_build_headers(),
-                json=payload,
-                timeout=timeout,
-            )
-        except (httpx.NetworkError, httpx.ConnectTimeout):
-            if attempt + 1 >= max_attempts:
-                raise
-            await asyncio.sleep(0.5 * (2 ** attempt))
-            continue
-
-        # Retry on rate limiting and transient server errors
-        if (response.status_code == 429 or response.status_code >= 500) and attempt + 1 < max_attempts:
-            await asyncio.sleep(0.5 * (2 ** attempt))
-            continue
-        return response
-
-    # Unreachable in practice: the loop above either returns a response or
-    # raises. This satisfies type-checkers that don't know the loop must exit
-    # via one of those two paths.
-    raise RuntimeError("_post_with_retry exited without returning or raising")
+def _serialize_reasoning_details(details: Any) -> Optional[List[Dict[str, Any]]]:
+    """Convert the SDK's typed reasoning details into plain JSON-safe dicts."""
+    if not details:
+        return None
+    return [
+        item.model_dump() if hasattr(item, "model_dump") else item
+        for item in details
+    ]
 
 
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
     timeout: float = 120.0,
+    stage: str = "",
+    session_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
-    Query a single model via OpenRouter API.
+    Query a single model via the OpenRouter SDK.
 
     Args:
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        stage: Human-readable stage label for timing logs (e.g., "stage1")
+        session_id: OpenRouter session id for grouping related requests.
+            Acts as a sticky routing key (maximizes prompt cache hits by
+            routing to the same provider) and groups requests in the
+            OpenRouter console. Max 256 characters.
 
     Returns:
-        Response dict with 'content' and optional 'reasoning_details', or None if failed
+        Response dict with 'content', 'duration_ms', and optional
+        'reasoning_details', or None if failed
     """
-    payload = {
-        "model": model,
-        "messages": messages,
-    }
-
+    start = time.perf_counter()
     try:
-        response = await _post_with_retry(payload, timeout=timeout)
-        response.raise_for_status()
+        result = await get_client().chat.send_async(
+            model=model,
+            messages=messages,
+            timeout_ms=int(timeout * 1000),
+            session_id=session_id,
+        )
+        message = result.choices[0].message
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
 
-        data = response.json()
-        message = data['choices'][0]['message']
+        stage_tag = f" stage={stage}" if stage else ""
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms ok")
 
         return {
-            'content': message.get('content'),
-            'reasoning_details': message.get('reasoning_details'),
+            'content': message.content,
+            'reasoning_details': _serialize_reasoning_details(message.reasoning_details),
+            'duration_ms': elapsed_ms,
         }
 
     except Exception as e:
-        print(f"Error querying model {model}: {e}")
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        stage_tag = f" stage={stage}" if stage else ""
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms FAILED: {e}")
         return None
 
 
 async def query_models_parallel(
     models: List[str],
     messages: List[Dict[str, str]],
+    stage: str = "",
+    session_id: Optional[str] = None,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -142,12 +138,18 @@ async def query_models_parallel(
     Args:
         models: List of OpenRouter model identifiers
         messages: List of message dicts to send to each model
+        stage: Human-readable stage label for timing logs
+        session_id: OpenRouter session id applied to every request
+            (see query_model for details)
 
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
     # Create tasks for all models
-    tasks = [query_model(model, messages) for model in models]
+    tasks = [
+        query_model(model, messages, stage=stage, session_id=session_id)
+        for model in models
+    ]
 
     # Wait for all to complete
     responses = await asyncio.gather(*tasks)

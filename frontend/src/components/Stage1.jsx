@@ -1,6 +1,12 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import Markdown from './Markdown';
 import './Stage1.css';
+
+function formatDuration(durationMs) {
+  if (durationMs == null) return null;
+  const secs = durationMs / 1000;
+  return secs >= 1 ? `${secs.toFixed(1)}s` : `${Math.round(durationMs)}ms`;
+}
 
 export default function Stage1({ responses }) {
   const [activeTab, setActiveTab] = useState(0);
@@ -21,14 +27,24 @@ export default function Stage1({ responses }) {
             onClick={() => setActiveTab(index)}
           >
             {resp.model.split('/')[1] || resp.model}
+            {resp.duration_ms != null && (
+              <span className="duration-badge">{formatDuration(resp.duration_ms)}</span>
+            )}
           </button>
         ))}
       </div>
 
       <div className="tab-content">
-        <div className="model-name">{responses[activeTab].model}</div>
+        <div className="model-name">
+          {responses[activeTab].model}
+          {responses[activeTab].duration_ms != null && (
+            <span className="duration-detail">
+              ⏱ {formatDuration(responses[activeTab].duration_ms)}
+            </span>
+          )}
+        </div>
         <div className="response-text markdown-content">
-          <ReactMarkdown>{responses[activeTab].response}</ReactMarkdown>
+          <Markdown>{responses[activeTab].response}</Markdown>
         </div>
       </div>
     </div>

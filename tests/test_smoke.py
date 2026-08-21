@@ -125,12 +125,12 @@ async def main() -> int:
             print("FAIL  add_user_message should have raised ValueError")
             return 1
 
-        # 12) Shared httpx client is initialized via lifespan
+        # 12) Shared openrouter SDK client is initialized via lifespan
         from backend.openrouter import get_client
         c1 = get_client()
         c2 = get_client()
-        assert c1 is c2, "shared client should be a singleton"
-        print("OK  shared httpx client is a singleton")
+        assert c1 is c2, "shared SDK client should be a singleton"
+        print("OK  shared openrouter SDK client is a singleton")
 
         # 13) Routes list
         routes = [r.path for r in app.routes if hasattr(r, "path")]

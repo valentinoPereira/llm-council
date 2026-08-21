@@ -1,6 +1,7 @@
 """3-stage LLM Council orchestration."""
 
 import re
+import time
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
@@ -8,20 +9,24 @@ from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
 from .openrouter import query_model, query_models_parallel
 
 
-async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
+async def stage1_collect_responses(user_query: str, session_id: str = "") -> List[Dict[str, Any]]:
     """
     Stage 1: Collect individual responses from all council models.
 
     Args:
         user_query: The user's question
+        session_id: OpenRouter session id (conversation grouping)
 
     Returns:
-        List of dicts with 'model' and 'response' keys
+        List of dicts with 'model', 'response', and 'duration_ms' keys
     """
     messages = [{"role": "user", "content": user_query}]
 
     # Query all models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    start = time.perf_counter()
+    responses = await query_models_parallel(
+        COUNCIL_MODELS, messages, stage="stage1", session_id=session_id
+    )
 
     # Format results
     stage1_results = []
@@ -29,15 +34,27 @@ async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
         if response is not None:  # Only include successful responses
             stage1_results.append({
                 "model": model,
-                "response": response.get('content', '')
+                "response": response.get('content', ''),
+                "duration_ms": response.get('duration_ms'),
             })
+
+    elapsed = time.perf_counter() - start
+    if stage1_results:
+        slowest = max(
+            (r for r in stage1_results if r['duration_ms'] is not None),
+            key=lambda r: r['duration_ms'],
+            default=None,
+        )
+        slowest_tag = f" slowest={slowest['model']}" if slowest else ""
+        print(f"[timing] stage=stage1 total={elapsed:.1f}s{slowest_tag}")
 
     return stage1_results
 
 
 async def stage2_collect_rankings(
     user_query: str,
-    stage1_results: List[Dict[str, Any]]
+    stage1_results: List[Dict[str, Any]],
+    session_id: str = "",
 ) -> Tuple[List[Dict[str, Any]], Dict[str, str]]:
     """
     Stage 2: Each model ranks the anonymized responses.
@@ -45,6 +62,7 @@ async def stage2_collect_rankings(
     Args:
         user_query: The original user query
         stage1_results: Results from Stage 1
+        session_id: OpenRouter session id (conversation grouping)
 
     Returns:
         Tuple of (rankings list, label_to_model mapping)
@@ -98,7 +116,10 @@ Now provide your evaluation and ranking:"""
     messages = [{"role": "user", "content": ranking_prompt}]
 
     # Get rankings from all council models in parallel
-    responses = await query_models_parallel(COUNCIL_MODELS, messages)
+    start = time.perf_counter()
+    responses = await query_models_parallel(
+        COUNCIL_MODELS, messages, stage="stage2", session_id=session_id
+    )
 
     # Format results
     stage2_results = []
@@ -109,8 +130,19 @@ Now provide your evaluation and ranking:"""
             stage2_results.append({
                 "model": model,
                 "ranking": full_text,
-                "parsed_ranking": parsed
+                "parsed_ranking": parsed,
+                "duration_ms": response.get('duration_ms'),
             })
+
+    elapsed = time.perf_counter() - start
+    if stage2_results:
+        slowest = max(
+            (r for r in stage2_results if r.get('duration_ms') is not None),
+            key=lambda r: r['duration_ms'],
+            default=None,
+        )
+        slowest_tag = f" slowest={slowest['model']}" if slowest else ""
+        print(f"[timing] stage=stage2 total={elapsed:.1f}s{slowest_tag}")
 
     return stage2_results, label_to_model
 
@@ -118,7 +150,8 @@ Now provide your evaluation and ranking:"""
 async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
-    stage2_results: List[Dict[str, Any]]
+    stage2_results: List[Dict[str, Any]],
+    session_id: str = "",
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -127,6 +160,7 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
+        session_id: OpenRouter session id (conversation grouping)
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -162,7 +196,9 @@ Provide a clear, well-reasoned final answer that represents the council's collec
     messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model
-    response = await query_model(CHAIRMAN_MODEL, messages)
+    response = await query_model(
+        CHAIRMAN_MODEL, messages, stage="stage3", session_id=session_id
+    )
 
     if response is None:
         # Fallback if chairman fails
@@ -171,9 +207,14 @@ Provide a clear, well-reasoned final answer that represents the council's collec
             "response": "Error: Unable to generate final synthesis."
         }
 
+    elapsed_ms = response.get('duration_ms')
+    if elapsed_ms is not None:
+        print(f"[timing] stage=stage3 model={CHAIRMAN_MODEL} total={elapsed_ms}ms")
+
     return {
         "model": CHAIRMAN_MODEL,
-        "response": response.get('content', '')
+        "response": response.get('content', ''),
+        "duration_ms": elapsed_ms,
     }
 
 
@@ -253,12 +294,13 @@ def calculate_aggregate_rankings(
     return aggregate
 
 
-async def generate_conversation_title(user_query: str) -> str:
+async def generate_conversation_title(user_query: str, session_id: str = "") -> str:
     """
     Generate a short title for a conversation based on the first user message.
 
     Args:
         user_query: The first user message
+        session_id: OpenRouter session id (conversation grouping)
 
     Returns:
         A short title (3-5 words)
@@ -273,7 +315,10 @@ Title:"""
     messages = [{"role": "user", "content": title_prompt}]
 
     # Use gemini-2.5-flash for title generation (fast and cheap)
-    response = await query_model("google/gemini-2.5-flash", messages, timeout=30.0)
+    response = await query_model(
+        "google/gemini-2.5-flash", messages, timeout=30.0, stage="title",
+        session_id=session_id,
+    )
 
     if response is None:
         # Fallback to a generic title
@@ -291,18 +336,22 @@ Title:"""
     return title
 
 
-async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
+async def run_full_council(
+    user_query: str,
+    session_id: str = "",
+) -> Tuple[List, List, Dict, Dict]:
     """
     Run the complete 3-stage council process.
 
     Args:
         user_query: The user's question
+        session_id: OpenRouter session id (conversation grouping)
 
     Returns:
         Tuple of (stage1_results, stage2_results, stage3_result, metadata)
     """
     # Stage 1: Collect individual responses
-    stage1_results = await stage1_collect_responses(user_query)
+    stage1_results = await stage1_collect_responses(user_query, session_id=session_id)
 
     # If no models responded successfully, return error
     if not stage1_results:
@@ -312,7 +361,9 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
         }, {}
 
     # Stage 2: Collect rankings
-    stage2_results, label_to_model = await stage2_collect_rankings(user_query, stage1_results)
+    stage2_results, label_to_model = await stage2_collect_rankings(
+        user_query, stage1_results, session_id=session_id
+    )
 
     # Calculate aggregate rankings
     aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
@@ -321,7 +372,8 @@ async def run_full_council(user_query: str) -> Tuple[List, List, Dict, Dict]:
     stage3_result = await stage3_synthesize_final(
         user_query,
         stage1_results,
-        stage2_results
+        stage2_results,
+        session_id=session_id,
     )
 
     # Prepare metadata

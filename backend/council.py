@@ -1,8 +1,11 @@
 """3-stage LLM Council orchestration."""
 
-from typing import List, Dict, Any, Tuple
-from .openrouter import query_models_parallel, query_model
-from .config import COUNCIL_MODELS, CHAIRMAN_MODEL
+import re
+from collections import defaultdict
+from typing import Any, Dict, List, Tuple
+
+from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
+from .openrouter import query_model, query_models_parallel
 
 
 async def stage1_collect_responses(user_query: str) -> List[Dict[str, Any]]:
@@ -184,8 +187,6 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
     Returns:
         List of response labels in ranked order
     """
-    import re
-
     # Look for "FINAL RANKING:" section
     if "FINAL RANKING:" in ranking_text:
         # Extract everything after "FINAL RANKING:"
@@ -200,12 +201,10 @@ def parse_ranking_from_text(ranking_text: str) -> List[str]:
                 return [re.search(r'Response [A-Z]', m).group() for m in numbered_matches]
 
             # Fallback: Extract all "Response X" patterns in order
-            matches = re.findall(r'Response [A-Z]', ranking_section)
-            return matches
+            return re.findall(r'Response [A-Z]', ranking_section)
 
     # Fallback: try to find any "Response X" patterns in order
-    matches = re.findall(r'Response [A-Z]', ranking_text)
-    return matches
+    return re.findall(r'Response [A-Z]', ranking_text)
 
 
 def calculate_aggregate_rankings(
@@ -216,22 +215,21 @@ def calculate_aggregate_rankings(
     Calculate aggregate rankings across all models.
 
     Args:
-        stage2_results: Rankings from each model
+        stage2_results: Rankings from each model (each must have 'parsed_ranking')
         label_to_model: Mapping from anonymous labels to model names
 
     Returns:
         List of dicts with model name and average rank, sorted best to worst
     """
-    from collections import defaultdict
-
     # Track positions for each model
-    model_positions = defaultdict(list)
+    model_positions: Dict[str, List[int]] = defaultdict(list)
 
     for ranking in stage2_results:
-        ranking_text = ranking['ranking']
-
-        # Parse the ranking from the structured format
-        parsed_ranking = parse_ranking_from_text(ranking_text)
+        # Reuse the ranking already parsed during stage 2, falling back to a
+        # fresh parse only if it wasn't provided.
+        parsed_ranking = ranking.get('parsed_ranking') or parse_ranking_from_text(
+            ranking['ranking']
+        )
 
         for position, label in enumerate(parsed_ranking, start=1):
             if label in label_to_model:

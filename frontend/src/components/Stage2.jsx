@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import ReactMarkdown from 'react-markdown';
+import Markdown from './Markdown';
 import './Stage2.css';
 
 function deAnonymizeText(text, labelToModel) {
@@ -12,6 +12,12 @@ function deAnonymizeText(text, labelToModel) {
     result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
   });
   return result;
+}
+
+function formatDuration(durationMs) {
+  if (durationMs == null) return null;
+  const secs = durationMs / 1000;
+  return secs >= 1 ? `${secs.toFixed(1)}s` : `${Math.round(durationMs)}ms`;
 }
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
@@ -39,6 +45,9 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
             onClick={() => setActiveTab(index)}
           >
             {rank.model.split('/')[1] || rank.model}
+            {rank.duration_ms != null && (
+              <span className="duration-badge">{formatDuration(rank.duration_ms)}</span>
+            )}
           </button>
         ))}
       </div>
@@ -46,11 +55,16 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
       <div className="tab-content">
         <div className="ranking-model">
           {rankings[activeTab].model}
+          {rankings[activeTab].duration_ms != null && (
+            <span className="duration-detail">
+              ⏱ {formatDuration(rankings[activeTab].duration_ms)}
+            </span>
+          )}
         </div>
         <div className="ranking-content markdown-content">
-          <ReactMarkdown>
+          <Markdown>
             {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
-          </ReactMarkdown>
+          </Markdown>
         </div>
 
         {rankings[activeTab].parsed_ranking &&

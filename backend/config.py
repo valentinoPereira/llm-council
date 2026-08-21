@@ -19,8 +19,5 @@ COUNCIL_MODELS = [
 # Chairman model - synthesizes final response
 CHAIRMAN_MODEL = "anthropic/claude-opus-5"
 
-# OpenRouter API endpoint
-OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"

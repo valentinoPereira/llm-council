@@ -17,10 +17,13 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 - Backend runs on **port 8001** (NOT 8000 - user had another app on 8000)
 
 **`openrouter.py`**
-- `query_model()`: Single async model query
+- Thin adapter over the official `openrouter` Python SDK (PyPI package `openrouter`, Speakeasy-generated)
+- `query_model()`: Single async model query via `client.chat.send_async()`
 - `query_models_parallel()`: Parallel queries using `asyncio.gather()`
-- Returns dict with 'content' and optional 'reasoning_details'
+- Returns dict with 'content' and optional 'reasoning_details' (serialized to plain dicts)
+- SDK owns auth, typing/validation, connection pooling, and retries (`_RETRY_CONFIG`: 429/5xx + connection errors, backoff bounded to ~2.5s)
 - Graceful degradation: returns None on failure, continues with successful responses
+- Tests inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `get_client()`
 
 **`council.py`** - The Core Logic
 - `stage1_collect_responses()`: Parallel queries to all council models

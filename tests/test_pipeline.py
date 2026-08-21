@@ -46,30 +46,39 @@ def make_router():
         user_msg = data["messages"][-1]["content"]
         captured.setdefault(model, []).append({"user_msg": user_msg})
 
-        if "very short title" in user_msg.lower():
+        # The official openrouter SDK strictly validates responses, so the
+        # mock must include required fields (index, finish_reason,
+        # system_fingerprint) even though our code only reads content.
+        def completion(content: str) -> httpx.Response:
             return httpx.Response(200, json={
-                "choices": [{"message": {"content": "Mocked Title"}}]
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": content},
+                }],
+                "created": 0,
+                "id": "mock-completion",
+                "model": model,
+                "object": "chat.completion",
+                "system_fingerprint": "mock-fingerprint",
             })
+
+        if "very short title" in user_msg.lower():
+            return completion("Mocked Title")
 
         # Chairman prompt embeds stage 2 rankings (which contain
         # "FINAL RANKING:") so it must be checked before the ranking branch.
         if "Chairman" in user_msg:
-            return httpx.Response(200, json={
-                "choices": [{"message": {"content": "Final synthesis from chairman."}}]
-            })
+            return completion("Final synthesis from chairman.")
 
         if "FINAL RANKING:" in user_msg:
             # Stage 2: produce a ranking of A, B, C
-            return httpx.Response(200, json={
-                "choices": [{"message": {"content":
-                    "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"
-                }}]
-            })
+            return completion(
+                "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"
+            )
 
         # Stage 1: a sample response per model
-        return httpx.Response(200, json={
-            "choices": [{"message": {"content": f"Response from {model}."}}]
-        })
+        return completion(f"Response from {model}.")
 
     return handler
 
@@ -77,13 +86,16 @@ def make_router():
 async def main() -> int:
     transport = httpx.MockTransport(make_router())
 
-    # Build a dedicated httpx client backed by the mock transport, and patch
-    # get_client() so openrouter.py uses it. This avoids fighting httpx's
-    # internal transport-resolution logic.
-    mock_client = httpx.AsyncClient(transport=transport, timeout=10.0)
+    # Build a dedicated httpx client backed by the mock transport, wrap it in
+    # the official openrouter SDK client, and patch get_client() so
+    # openrouter.py uses it. Auth is applied by the SDK itself; the injected
+    # client only supplies the transport.
+    mock_http = httpx.AsyncClient(transport=transport, timeout=10.0)
+    from openrouter import OpenRouter
+    mock_sdk = OpenRouter(api_key="test-key", async_client=mock_http)
     from backend import openrouter as orouter
     original_get_client = orouter.get_client
-    orouter.get_client = lambda: mock_client
+    orouter.get_client = lambda: mock_sdk
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
             # Create a conversation
@@ -156,7 +168,7 @@ async def main() -> int:
 
     finally:
         orouter.get_client = original_get_client
-        await mock_client.aclose()
+        await mock_http.aclose()
         shutil.rmtree(SANDBOX, ignore_errors=True)
     return 0
 

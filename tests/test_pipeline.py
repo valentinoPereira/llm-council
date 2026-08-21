@@ -1,0 +1,165 @@
+"""End-to-end test of the council pipeline with mocked OpenRouter."""
+import asyncio
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+# Make the project root importable regardless of CWD.
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+SANDBOX = tempfile.mkdtemp(prefix="llmc-pipe-")
+os.environ["OPENROUTER_API_KEY"] = "test-key"
+
+import importlib
+import backend.config as cfg
+cfg.DATA_DIR = os.path.join(SANDBOX, "conversations")
+import backend.storage
+importlib.reload(backend.storage)
+import backend.openrouter
+importlib.reload(backend.openrouter)
+import backend.council
+importlib.reload(backend.council)
+import backend.main
+importlib.reload(backend.main)
+
+import httpx
+from backend.main import app
+
+
+# ---- Mock OpenRouter -------------------------------------------------------
+
+# Captured payloads by model for inspection
+captured: Dict[str, List[Dict[str, Any]]] = {}
+
+
+def make_router():
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        import json
+        data = json.loads(body)
+        model = data["model"]
+        user_msg = data["messages"][-1]["content"]
+        captured.setdefault(model, []).append({"user_msg": user_msg})
+
+        if "very short title" in user_msg.lower():
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": "Mocked Title"}}]
+            })
+
+        # Chairman prompt embeds stage 2 rankings (which contain
+        # "FINAL RANKING:") so it must be checked before the ranking branch.
+        if "Chairman" in user_msg:
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content": "Final synthesis from chairman."}}]
+            })
+
+        if "FINAL RANKING:" in user_msg:
+            # Stage 2: produce a ranking of A, B, C
+            return httpx.Response(200, json={
+                "choices": [{"message": {"content":
+                    "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"
+                }}]
+            })
+
+        # Stage 1: a sample response per model
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": f"Response from {model}."}}]
+        })
+
+    return handler
+
+
+async def main() -> int:
+    transport = httpx.MockTransport(make_router())
+
+    # Build a dedicated httpx client backed by the mock transport, and patch
+    # get_client() so openrouter.py uses it. This avoids fighting httpx's
+    # internal transport-resolution logic.
+    mock_client = httpx.AsyncClient(transport=transport, timeout=10.0)
+    from backend import openrouter as orouter
+    original_get_client = orouter.get_client
+    orouter.get_client = lambda: mock_client
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
+            # Create a conversation
+            r = await http.post("/api/conversations", json={})
+            cid = r.json()["id"]
+
+            # Send a first message -- exercises title-gen + full council
+            r = await http.post(
+                f"/api/conversations/{cid}/message",
+                json={"content": "What is the meaning of life?"},
+            )
+            assert r.status_code == 200, r.text
+            data = r.json()
+            print(f"OK  POST /message  status={r.status_code}  stages={list(data.keys())}")
+
+            # Sanity-check stages
+            assert len(data["stage1"]) > 0, "stage1 should have at least one response"
+            assert len(data["stage2"]) > 0, "stage2 should have at least one ranking"
+            assert data["stage3"]["response"] == "Final synthesis from chairman.", data["stage3"]
+            assert data["metadata"]["label_to_model"], "label_to_model should be populated"
+            assert data["metadata"]["aggregate_rankings"], "aggregate_rankings should be populated"
+
+            # The aggregate ranking should mention a model from stage 1
+            agg = data["metadata"]["aggregate_rankings"]
+            assert any("glm" in e["model"] or "/" in e["model"] for e in agg), agg
+            print(f"OK  aggregate_rankings: {[e['model'] for e in agg]}")
+
+            # Title should be set
+            r = await http.get(f"/api/conversations/{cid}")
+            assert r.json()["title"] == "Mocked Title", r.json()["title"]
+            print("OK  title persisted")
+
+            # parsed_ranking was reused (each stage2 entry must have one)
+            for entry in data["stage2"]:
+                assert "parsed_ranking" in entry, entry
+            print("OK  parsed_ranking present in stage2 results")
+
+            # OpenRouter was actually called
+            assert "anthropic/claude-opus-5" in captured, "chairman not called"
+            assert "google/gemini-2.5-flash" in captured, "title model not called"
+            council_models = {"z-ai/glm-5.3", "qwen/qwen3.8-2.4t-a95b",
+                              "deepseek/deepseek-v4-pro-0813", "moonshotai/kimi-k3"}
+            assert council_models.issubset(captured.keys()), \
+                f"missing council models: {council_models - set(captured.keys())}"
+            print(f"OK  openrouter called for: {sorted(captured.keys())}")
+
+            # Stage 1 + Stage 2 each called once per model
+            for m in council_models:
+                assert len(captured[m]) == 2, f"{m} called {len(captured[m])} times"
+            print("OK  stage 1 + stage 2 each called once per model")
+
+            # 14) Streaming endpoint smoke test
+            r = await http.post("/api/conversations", json={})
+            cid2 = r.json()["id"]
+            r = await http.post(
+                f"/api/conversations/{cid2}/message/stream",
+                json={"content": "Stream test"},
+            )
+            assert r.status_code == 200, r.text
+            # Read the SSE stream to completion
+            body = b""
+            async for chunk in r.aiter_bytes():
+                body += chunk
+            text = body.decode()
+            for marker in ("stage1_start", "stage1_complete", "stage2_start",
+                           "stage2_complete", "stage3_start", "stage3_complete",
+                           "title_complete", "complete"):
+                assert marker in text, f"missing SSE event: {marker}"
+            print("OK  streaming endpoint emits all 8 expected events")
+
+    finally:
+        orouter.get_client = original_get_client
+        await mock_client.aclose()
+        shutil.rmtree(SANDBOX, ignore_errors=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(asyncio.run(main()))

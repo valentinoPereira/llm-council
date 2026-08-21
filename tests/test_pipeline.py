@@ -44,7 +44,10 @@ def make_router():
         data = json.loads(body)
         model = data["model"]
         user_msg = data["messages"][-1]["content"]
-        captured.setdefault(model, []).append({"user_msg": user_msg})
+        captured.setdefault(model, []).append({
+            "user_msg": user_msg,
+            "session_id": data.get("session_id"),
+        })
 
         # The official openrouter SDK strictly validates responses, so the
         # mock must include required fields (index, finish_reason,
@@ -118,6 +121,17 @@ async def main() -> int:
             assert data["metadata"]["label_to_model"], "label_to_model should be populated"
             assert data["metadata"]["aggregate_rankings"], "aggregate_rankings should be populated"
 
+            # Timing: each stage result should carry a duration_ms
+            for entry in data["stage1"]:
+                assert "duration_ms" in entry and entry["duration_ms"] >= 0, \
+                    f"stage1 entry missing duration_ms: {entry}"
+            for entry in data["stage2"]:
+                assert "duration_ms" in entry and entry["duration_ms"] >= 0, \
+                    f"stage2 entry missing duration_ms: {entry}"
+            assert "duration_ms" in data["stage3"] and data["stage3"]["duration_ms"] >= 0, \
+                f"stage3 missing duration_ms: {data['stage3']}"
+            print(f"OK  duration_ms present in stage1/stage2/stage3 results")
+
             # The aggregate ranking should mention a model from stage 1
             agg = data["metadata"]["aggregate_rankings"]
             assert any("glm" in e["model"] or "/" in e["model"] for e in agg), agg
@@ -134,10 +148,9 @@ async def main() -> int:
             print("OK  parsed_ranking present in stage2 results")
 
             # OpenRouter was actually called
-            assert "anthropic/claude-opus-5" in captured, "chairman not called"
+            assert "moonshotai/kimi-k3" in captured, "chairman not called"
             assert "google/gemini-2.5-flash" in captured, "title model not called"
-            council_models = {"z-ai/glm-5.3", "qwen/qwen3.8-2.4t-a95b",
-                              "deepseek/deepseek-v4-pro-0813", "moonshotai/kimi-k3"}
+            council_models = set(cfg.COUNCIL_MODELS)
             assert council_models.issubset(captured.keys()), \
                 f"missing council models: {council_models - set(captured.keys())}"
             print(f"OK  openrouter called for: {sorted(captured.keys())}")
@@ -146,6 +159,16 @@ async def main() -> int:
             for m in council_models:
                 assert len(captured[m]) == 2, f"{m} called {len(captured[m])} times"
             print("OK  stage 1 + stage 2 each called once per model")
+
+            # Every request (all stages + title gen) carried the conversation's
+            # OpenRouter session id: one conversation = one session.
+            expected_sid = f"llm-council-{cid}"
+            all_entries = [e for entries in captured.values() for e in entries]
+            assert all_entries, "no requests were captured"
+            bad_sids = {e["session_id"] for e in all_entries} - {expected_sid}
+            assert not bad_sids and all(e["session_id"] == expected_sid for e in all_entries), \
+                f"unexpected session ids: {bad_sids or {e['session_id'] for e in all_entries}}"
+            print(f"OK  all {len(all_entries)} requests used session_id={expected_sid}")
 
             # 14) Streaming endpoint smoke test
             r = await http.post("/api/conversations", json={})
@@ -165,6 +188,14 @@ async def main() -> int:
                            "title_complete", "complete"):
                 assert marker in text, f"missing SSE event: {marker}"
             print("OK  streaming endpoint emits all 8 expected events")
+
+            # The streamed conversation got its own session id
+            expected_sid2 = f"llm-council-{cid2}"
+            all_entries = [e for entries in captured.values() for e in entries]
+            sid2_entries = [e for e in all_entries if e["session_id"] == expected_sid2]
+            assert sid2_entries, f"streaming requests missing session id {expected_sid2}"
+            print(f"OK  streaming requests used session_id={expected_sid2} "
+                  f"({len(sid2_entries)} requests)")
 
     finally:
         orouter.get_client = original_get_client

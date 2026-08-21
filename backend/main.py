@@ -48,6 +48,21 @@ app.add_middleware(
 
 # -- Storage helpers ----------------------------------------------------------
 
+# OpenRouter caps session ids at 256 characters.
+OPENROUTER_SESSION_ID_MAX = 256
+
+
+def openrouter_session_id(conversation_id: str) -> str:
+    """Deterministic OpenRouter session id: one conversation = one session.
+
+    Derived purely from the conversation id so it is stable across every
+    turn, every stage (1-3), and title generation — even after the title
+    changes mid-conversation. OpenRouter uses it as a sticky routing key
+    (same provider per session, maximizing prompt cache hits) and to group
+    requests in its console/dashboard.
+    """
+    return f"llm-council-{conversation_id}"[:OPENROUTER_SESSION_ID_MAX]
+
 # Storage functions are sync and touch the disk; run them in the default
 # thread pool so they don't block the event loop. Wrap them once here so
 # endpoint handlers stay readable.
@@ -131,16 +146,22 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # One conversation = one OpenRouter session, across all model calls
+    # (stages 1-3 and title generation).
+    session_id = openrouter_session_id(conversation_id)
+
     # Start title generation in parallel with the council run, mirroring the
     # streaming endpoint's pattern.
     title_task: asyncio.Task[str] | None = None
     if is_first_message:
-        title_task = asyncio.create_task(generate_conversation_title(request.content))
+        title_task = asyncio.create_task(
+            generate_conversation_title(request.content, session_id=session_id)
+        )
 
     try:
         # Run the 3-stage council process
         stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-            request.content
+            request.content, session_id=session_id
         )
     except BaseException:
         # Don't leak the background title task if the council run fails.
@@ -198,6 +219,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
         )
 
     async def event_generator():
+        # One conversation = one OpenRouter session, across all model calls
+        # (stages 1-3 and title generation).
+        session_id = openrouter_session_id(conversation_id)
         title_task: asyncio.Task[str] | None = None
         try:
             # Add user message
@@ -205,22 +229,30 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Start title generation in parallel (don't await yet)
             if is_first_message:
-                title_task = asyncio.create_task(generate_conversation_title(request.content))
+                title_task = asyncio.create_task(
+                    generate_conversation_title(request.content, session_id=session_id)
+                )
 
             # Stage 1: Collect responses
             yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
-            stage1_results = await stage1_collect_responses(request.content)
+            stage1_results = await stage1_collect_responses(
+                request.content, session_id=session_id
+            )
             yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
 
             # Stage 2: Collect rankings
             yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
-            stage2_results, label_to_model = await stage2_collect_rankings(request.content, stage1_results)
+            stage2_results, label_to_model = await stage2_collect_rankings(
+                request.content, stage1_results, session_id=session_id
+            )
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
 
             # Stage 3: Synthesize final answer
             yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
-            stage3_result = await stage3_synthesize_final(request.content, stage1_results, stage2_results)
+            stage3_result = await stage3_synthesize_final(
+                request.content, stage1_results, stage2_results, session_id=session_id
+            )
             yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started

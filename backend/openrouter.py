@@ -6,6 +6,7 @@ response typing, connection pooling, timeouts, and retries.
 """
 
 import asyncio
+import time
 from typing import Any, Dict, List, Optional
 
 from openrouter import OpenRouter
@@ -78,6 +79,8 @@ async def query_model(
     model: str,
     messages: List[Dict[str, str]],
     timeout: float = 120.0,
+    stage: str = "",
+    session_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via the OpenRouter SDK.
@@ -86,31 +89,48 @@ async def query_model(
         model: OpenRouter model identifier (e.g., "openai/gpt-4o")
         messages: List of message dicts with 'role' and 'content'
         timeout: Request timeout in seconds
+        stage: Human-readable stage label for timing logs (e.g., "stage1")
+        session_id: OpenRouter session id for grouping related requests.
+            Acts as a sticky routing key (maximizes prompt cache hits by
+            routing to the same provider) and groups requests in the
+            OpenRouter console. Max 256 characters.
 
     Returns:
-        Response dict with 'content' and optional 'reasoning_details', or None if failed
+        Response dict with 'content', 'duration_ms', and optional
+        'reasoning_details', or None if failed
     """
+    start = time.perf_counter()
     try:
         result = await get_client().chat.send_async(
             model=model,
             messages=messages,
             timeout_ms=int(timeout * 1000),
+            session_id=session_id,
         )
         message = result.choices[0].message
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+
+        stage_tag = f" stage={stage}" if stage else ""
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms ok")
 
         return {
             'content': message.content,
             'reasoning_details': _serialize_reasoning_details(message.reasoning_details),
+            'duration_ms': elapsed_ms,
         }
 
     except Exception as e:
-        print(f"Error querying model {model}: {e}")
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        stage_tag = f" stage={stage}" if stage else ""
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms FAILED: {e}")
         return None
 
 
 async def query_models_parallel(
     models: List[str],
     messages: List[Dict[str, str]],
+    stage: str = "",
+    session_id: Optional[str] = None,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -118,12 +138,18 @@ async def query_models_parallel(
     Args:
         models: List of OpenRouter model identifiers
         messages: List of message dicts to send to each model
+        stage: Human-readable stage label for timing logs
+        session_id: OpenRouter session id applied to every request
+            (see query_model for details)
 
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
     # Create tasks for all models
-    tasks = [query_model(model, messages) for model in models]
+    tasks = [
+        query_model(model, messages, stage=stage, session_id=session_id)
+        for model in models
+    ]
 
     # Wait for all to complete
     responses = await asyncio.gather(*tasks)

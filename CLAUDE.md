@@ -18,22 +18,25 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 
 **`openrouter.py`**
 - Thin adapter over the official `openrouter` Python SDK (PyPI package `openrouter`, Speakeasy-generated)
-- `query_model()`: Single async model query via `client.chat.send_async()`
-- `query_models_parallel()`: Parallel queries using `asyncio.gather()`
-- Returns dict with 'content' and optional 'reasoning_details' (serialized to plain dicts)
+- `query_model()`: Single async model query via `client.chat.send_async()`; accepts optional `session_id` (OpenRouter session for grouping/sticky routing)
+- `query_models_parallel()`: Parallel queries using `asyncio.gather()`; forwards `session_id` to every request
+- Returns dict with 'content', 'duration_ms', and optional 'reasoning_details' (serialized to plain dicts)
 - SDK owns auth, typing/validation, connection pooling, and retries (`_RETRY_CONFIG`: 429/5xx + connection errors, backoff bounded to ~2.5s)
+- `query_model()` and `query_models_parallel()` accept an optional `stage` label (e.g. `"stage1"`, `"stage2"`, `"stage3"`, `"title"`) for per-call `[timing]` logs
 - Graceful degradation: returns None on failure, continues with successful responses
+- Every successful response includes `duration_ms` (round-trip wall time from `time.perf_counter()`)
 - Tests inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `get_client()`
 
 **`council.py`** - The Core Logic
-- `stage1_collect_responses()`: Parallel queries to all council models
+- `stage1_collect_responses()`: Parallel queries to all council models, returns `duration_ms` per model
 - `stage2_collect_rankings()`:
   - Anonymizes responses as "Response A, B, C, etc."
   - Creates `label_to_model` mapping for de-anonymization
   - Prompts models to evaluate and rank (with strict format requirements)
   - Returns tuple: (rankings_list, label_to_model_dict)
-  - Each ranking includes both raw text and `parsed_ranking` list
-- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings
+  - Each ranking includes raw text, `parsed_ranking` list, and `duration_ms`
+  - Stage totals logged as `[timing] stage=stage1 total=Xs slowest=<model>`
+- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings, includes `duration_ms`
 - `parse_ranking_from_text()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
 - `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
 
@@ -47,6 +50,15 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 - FastAPI app with CORS enabled for localhost:5173 and localhost:3000
 - POST `/api/conversations/{id}/message` returns metadata in addition to stages
 - Metadata includes: label_to_model mapping and aggregate_rankings
+
+### OpenRouter Sessions
+
+One conversation = one OpenRouter session (grouping + sticky routing in the OpenRouter console, like the `pi-openrouter-session` extension):
+- `main.openrouter_session_id(conversation_id)` builds a deterministic id: `llm-council-<conversation_id>` (max 256 chars per OpenRouter limit)
+- The same session id is passed to **every** model call in the conversation: stages 1-3 and title generation, on both the REST and streaming endpoints
+- Derived purely from the conversation id so it never changes mid-conversation (important: a session id that changes would break sticky routing and split the group in the console)
+- `session_id` is a request body field on `/chat/completions` (also accepted as `x-session-id` header); the SDK accepts it as `session_id=` on `chat.send_async()`
+- Note: sessions are routing/observability only — OpenRouter does NOT store conversation memory; full message history must still be sent per request (the council currently sends only the current user query per turn)
 
 ### Frontend Structure (`frontend/src/`)
 
@@ -63,17 +75,20 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 **`components/Stage1.jsx`**
 - Tab view of individual model responses
 - ReactMarkdown rendering with markdown-content wrapper
+- Shows per-model `⏱` timing badge in tab and next to model name
 
 **`components/Stage2.jsx`**
 - **Critical Feature**: Tab view showing RAW evaluation text from each model
 - De-anonymization happens CLIENT-SIDE for display (models receive anonymous labels)
 - Shows "Extracted Ranking" below each evaluation so users can validate parsing
+- Per-model timing badges in tabs and header
 - Aggregate rankings shown with average position and vote count
 - Explanatory text clarifies that boldface model names are for readability only
 
 **`components/Stage3.jsx`**
 - Final synthesized answer from chairman
 - Green-tinted background (#f0fff0) to highlight conclusion
+- Chairman timing displayed next to model label
 
 **Styling (`*.css`)**
 - Light mode theme (not dark mode)

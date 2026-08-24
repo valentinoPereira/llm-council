@@ -6,6 +6,21 @@ This file contains technical details, architectural decisions, and important imp
 
 LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively answer user questions. The key innovation is anonymized peer review in Stage 2, preventing models from playing favorites.
 
+## Project Rules
+
+- **Packages over DIY.** Prefer established libraries (react-router-dom, zustand, etc.) over hand-rolled hooks/utils. Custom hooks are fine when wrapping library primitives or composing app-specific state; reach for a package the moment the DIY version would reimplement a known wheel.
+
+## Routing
+
+- React Router v7, `<BrowserRouter>` in `src/main.jsx`
+- Routes: `/` (new chat / home) and `/c/:conversationId`
+- URL is the source of truth — `useParams()` drives which chat is loaded
+- `useConversationStream()` hook owns the optimistic-message + SSE loop
+- `ChatRoute` reads :conversationId, fetches via `api.getConversation`, redirects to `/` on 404
+- `HomeRoute` submits a new conversation on first send and `navigate('/c/<id>', { replace: true })`
+- `Sidebar` uses `<NavLink to={'/c/' + id}>` (active class via `isActive`); scrolls the active item into view via `data-conversation-id` querySelector + `scrollIntoView({ block: 'nearest' })`
+- **Production hosts must serve `index.html` for all `/c/*` paths** (SPA fallback). Vite dev server handles this automatically.
+
 ## Architecture
 
 ### Backend Structure (`backend/`)

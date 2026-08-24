@@ -100,13 +100,24 @@ async def main() -> int:
             stage1=[{"model": "x", "response": "y"}],
             stage2=[{"model": "x", "ranking": "z", "parsed_ranking": ["Response A"]}],
             stage3={"model": "chair", "response": "final"},
+            metadata={"label_to_model": {"Response A": "x"}, "aggregate_rankings": [{"model": "x", "average_rank": 1.0, "rankings_count": 1}]},
         )
         loaded = backend.storage.get_conversation(cid)
         assert len(loaded["messages"]) == 2
         assert loaded["messages"][-1]["stage3"]["response"] == "final"
+        # Metadata must be persisted so the Aggregate Rankings section shows
+        # up when the conversation is reopened. This is the regression test
+        # for the "Aggregate Rankings only shows for the first response"
+        # bug.
+        persisted_metadata = loaded["messages"][-1].get("metadata")
+        assert persisted_metadata is not None, "metadata was not persisted"
+        assert persisted_metadata["label_to_model"] == {"Response A": "x"}
+        assert persisted_metadata["aggregate_rankings"] == [
+            {"model": "x", "average_rank": 1.0, "rankings_count": 1}
+        ]
         idx = json.loads(index_path.read_text())
         assert idx[cid]["message_count"] == 2
-        print("OK  add_assistant_message + index update")
+        print("OK  add_assistant_message + index update + metadata persistence")
 
         # 10) update_conversation_title
         backend.storage.update_conversation_title(cid, "New Title")
@@ -190,6 +201,48 @@ async def main() -> int:
         )
         assert r.status_code == 400, (r.status_code, r.text)
         print("OK  oversized message (streaming) -> HTTP 400")
+
+        # 18) Regression: pre-existing conversations saved without
+        # `metadata` must still expose `aggregate_rankings` on read so the
+        # Aggregate Rankings section shows up when reopening an old chat.
+        legacy_id = str(uuid.uuid4())
+        legacy_path = Path(cfg.DATA_DIR) / f"{legacy_id}.json"
+        # Hand-craft an old-style assistant message that has no `metadata`.
+        legacy_path.write_text(json.dumps({
+            "id": legacy_id,
+            "created_at": "2026-01-01T00:00:00",
+            "title": "Pre-fix Conversation",
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "stage1": [{"model": "google/gemini-2.5-flash", "response": "r1"}],
+                    "stage2": [
+                        {
+                            "model": "google/gemini-2.5-flash",
+                            "ranking": "FINAL RANKING:\n1. Response A\n",
+                            "parsed_ranking": ["Response A"],
+                        }
+                    ],
+                    "stage3": {"model": "chair", "response": "final"},
+                    # NOTE: no `metadata` key, simulating a pre-fix save.
+                },
+            ],
+        }))
+        # Drop the index so the rebuild path is exercised on this read.
+        if index_path.exists():
+            index_path.unlink()
+        r = await client.get(f"/api/conversations/{legacy_id}")
+        assert r.status_code == 200, r.text
+        legacy_msg = r.json()["messages"][-1]
+        assert legacy_msg["metadata"]["label_to_model"] == {
+            "Response A": "google/gemini-2.5-flash"
+        }
+        # aggregate_rankings must be recomputed (not empty).
+        assert legacy_msg["metadata"]["aggregate_rankings"], (
+            "aggregate_rankings was not backfilled on read"
+        )
+        print("OK  pre-fix conversations get aggregate_rankings backfilled on read")
 
     return 0
 

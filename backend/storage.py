@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from .config import DATA_DIR
+from .council import calculate_aggregate_rankings
 
 # Cap user input length to avoid runaway token usage across ~9 council
 # LLM calls per message.
@@ -157,6 +158,57 @@ def create_conversation(conversation_id: str) -> Dict[str, Any]:
     return conversation
 
 
+def _backfill_message_metadata(conv: Dict[str, Any]) -> None:
+    """
+    Repair assistant messages that were persisted without `metadata`.
+
+    Older code paths (and any pre-existing conversation files) saved
+    stage1/stage2/stage3 but not the per-message `metadata` block that holds
+    `label_to_model` and `aggregate_rankings`. The frontend needs that block
+    to render the Aggregate Rankings section. `aggregate_rankings` is a pure
+    function of (stage2_results, label_to_model), and `label_to_model` is
+    deterministically derivable from the anonymization scheme used in
+    `stage2_collect_rankings` (Response A, B, C, ... map positionally to
+    stage1_results), so we can recompute both fields from data that is
+    already on disk.
+
+    This runs in-memory only: we mutate the dict that was just read, so the
+    caller sees the repaired message and the on-disk file is rewritten on
+    the next save. It is safe to call on every read.
+    """
+    for msg in conv.get("messages", []):
+        if msg.get("role") != "assistant":
+            continue
+        stage2 = msg.get("stage2")
+        stage1 = msg.get("stage1")
+        if not stage2 or not stage1:
+            continue
+        metadata = msg.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            msg["metadata"] = metadata
+        if not metadata.get("label_to_model"):
+            # The same A/B/C positional scheme used in
+            # `stage2_collect_rankings` (council.py). Only the labels that
+            # actually appear in a parsed_ranking are needed for the
+            # aggregate calculation, so we map just the ones stage1 has.
+            metadata["label_to_model"] = {
+                f"Response {chr(65 + i)}": entry["model"]
+                for i, entry in enumerate(stage1)
+                if "model" in entry
+            }
+        if not metadata.get("aggregate_rankings"):
+            label_to_model = metadata.get("label_to_model") or {}
+            if label_to_model:
+                try:
+                    metadata["aggregate_rankings"] = calculate_aggregate_rankings(
+                        stage2, label_to_model
+                    )
+                except Exception:
+                    # Never let a backfill failure break a read.
+                    pass
+
+
 def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     Load a conversation from storage.
@@ -171,7 +223,12 @@ def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     if not os.path.exists(path):
         return None
     with open(path, "r") as f:
-        return json.load(f)
+        conv = json.load(f)
+    # Repair older conversations (or messages saved before the metadata
+    # block was persisted) so the Aggregate Rankings section shows up when
+    # opening an existing chat.
+    _backfill_message_metadata(conv)
+    return conv
 
 
 def _save_conversation_full(conversation: Dict[str, Any]) -> None:
@@ -251,6 +308,7 @@ def add_assistant_message(
     stage1: List[Dict[str, Any]],
     stage2: List[Dict[str, Any]],
     stage3: Dict[str, Any],
+    metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """
     Add an assistant message with all 3 stages to a conversation.
@@ -260,6 +318,11 @@ def add_assistant_message(
         stage1: List of individual model responses
         stage2: List of model rankings
         stage3: Final synthesized response
+        metadata: Per-message metadata block holding `label_to_model` and
+            `aggregate_rankings`. Persisted so the Aggregate Rankings
+            ("Street Cred") section renders when the conversation is
+            reopened. Older callers may pass None; in that case the on-read
+            backfill in `_backfill_message_metadata` will recompute it.
     """
 
     def _append(conv: Dict[str, Any]) -> None:
@@ -268,6 +331,7 @@ def add_assistant_message(
             "stage1": stage1,
             "stage2": stage2,
             "stage3": stage3,
+            "metadata": metadata,
         })
 
     _mutate_conversation(conversation_id, _append)

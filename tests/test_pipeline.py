@@ -142,6 +142,24 @@ async def main() -> int:
             assert r.json()["title"] == "Mocked Title", r.json()["title"]
             print("OK  title persisted")
 
+            # The persisted assistant message must carry the metadata block
+            # (label_to_model + aggregate_rankings) so the Aggregate
+            # Rankings section renders when the conversation is reopened.
+            # This is the regression test for the "Aggregate Rankings only
+            # shows for the first response" bug.
+            persisted_msg = r.json()["messages"][-1]
+            assert persisted_msg["role"] == "assistant", persisted_msg
+            assert "metadata" in persisted_msg, (
+                "metadata was not persisted with the assistant message"
+            )
+            assert persisted_msg["metadata"]["label_to_model"], (
+                "label_to_model missing from persisted metadata"
+            )
+            assert persisted_msg["metadata"]["aggregate_rankings"], (
+                "aggregate_rankings missing from persisted metadata"
+            )
+            print("OK  metadata persisted with assistant message")
+
             # parsed_ranking was reused (each stage2 entry must have one)
             for entry in data["stage2"]:
                 assert "parsed_ranking" in entry, entry

@@ -56,10 +56,13 @@
   }
 
   .conversation-item {
+    display: block;
     padding: 12px;
     margin-bottom: 4px;
     border-radius: 6px;
     cursor: pointer;
+    text-decoration: none;
+    color: inherit;
     transition: background 0.2s;
 
     &:hover { background: var(--bg-hover); }

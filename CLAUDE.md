@@ -91,10 +91,15 @@ One conversation = one OpenRouter session (grouping + sticky routing in the Open
 - Chairman timing displayed next to model label
 
 **Styling (`*.css`)**
-- Light mode theme (not dark mode)
-- Primary color: #4a90e2 (blue)
-- Global markdown styling in `index.css` with `.markdown-content` class
+- Modern CSS (nesting, `light-dark()`, `color-mix()`) with CSS custom properties for theming
+- Semantic tokens defined in `src/theme.css` via `:root { --bg-app: light-dark(#fff, #1e1f22); ... }`
+- `color-scheme: light dark` on `:root` makes `light-dark()` follow the OS by default
+- Manual toggle: `data-theme="light"|"dark"` on `<html>` pins `color-scheme`; absent = follow OS
+- Light values = the original colors (pixel-identical in light mode); dark values tuned for readability
+- Derived hovers use `color-mix(in oklch, ...)` instead of hardcoded hex
+- Global markdown styling in `index.css` with `.markdown-content` class (uses nesting)
 - 12px padding on all markdown content to prevent cluttered appearance
+- Browser note: `light-dark()` requires Safari ≥ 17.5 / Chrome ≥ 123 / Firefox ≥ 120
 
 ## Key Design Decisions
 

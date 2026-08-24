@@ -1,0 +1,55 @@
+/*
+ * Design tokens for LLM Council.
+ * Light values = the original hex colors; dark values tuned for readability.
+ * Uses CSS Color 4's light-dark() which resolves based on the computed
+ * color-scheme of the :root element — toggled by the ThemeToggle component.
+ */
+:root {
+  color-scheme: light dark;
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────── */
+  --bg-body:              light-dark(#f5f5f5, #121212);
+  --bg-app:               light-dark(#ffffff, #1e1f22);
+  --bg-sidebar:           light-dark(#f8f8f8, #18191b);
+  --bg-subtle:            light-dark(#fafafa, #27282d);
+  --bg-hover:             light-dark(#f0f0f0, #2d2e33);
+  --bg-panel:             light-dark(#ffffff, #25262a);
+
+  /* ── Themed panels ────────────────────────────────────────────────────── */
+  --bg-user-bubble:       light-dark(#f0f7ff, #172030);
+  --border-user-bubble:   light-dark(#d0e7ff, #264065);
+  --bg-selected:          light-dark(#e8f0fe, #1e2f45);
+  --border-selected:      light-dark(#4a90e2, #4a90e2);
+  --bg-success:           light-dark(#f0fff0, #1a2d1a);
+  --border-success:       light-dark(#c8e6c8, #2d5a3a);
+  --text-success:         light-dark(#2d8a2d, #6cc06c);
+
+  /* ── Borders ──────────────────────────────────────────────────────────── */
+  --border-default:       light-dark(#e0e0e0, #33353a);
+  --border-strong:        light-dark(#d0d0d0, #3f4147);
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --text-primary:         light-dark(#333333, #e6e6e6);
+  --text-secondary:       light-dark(#666666, #a0a0a8);
+  --text-muted:           light-dark(#999999, #75757e);
+
+  /* ── Primary blue ─────────────────────────────────────────────────────── */
+  --primary:              light-dark(#4a90e2, #5b9fe8);
+  --primary-text:         light-dark(#2a7ae2, #79b8ff);
+  --primary-hover:        light-dark(#357abd, #79b0f0);
+  --primary-soft:         light-dark(color-mix(in oklch, #4a90e2 10%, #ffffff),
+                                    color-mix(in oklch, #4a90e2 10%, #1e1f22));
+
+  /* ── Buttons ──────────────────────────────────────────────────────────── */
+  --btn-hover:            color-mix(in oklch, var(--primary), black 15%);
+  --btn-disabled-bg:      light-dark(#cccccc, #3a3a3a);
+  --btn-disabled-border:  light-dark(#cccccc, #444444);
+}
+
+/* Manual override via ThemeToggle */
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}

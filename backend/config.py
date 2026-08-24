@@ -10,14 +10,14 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
-    "@preset/glm-5-2",
-    "qwen/qwen3.8-2.4t-a95b",
-    "@preset/minimax-m3",
-    "x-ai/grok-4.6",
+    "moonshotai/kimi-k3",
+    "openai/gpt-5.6-sol",
+    "google/gemini-3.7-flash",
+    "anthropic/claude-opus-5",
 ]
 
 # Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "moonshotai/kimi-k3"
+CHAIRMAN_MODEL = "z-ai/glm-5.3"
 
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"

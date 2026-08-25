@@ -8,8 +8,8 @@ from typing import Any, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from sse_starlette.sse import EventSourceResponse
 
 from . import storage
 from .council import (
@@ -231,32 +231,32 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
                 )
 
             # Stage 1: Collect responses
-            yield f"data: {json.dumps({'type': 'stage1_start'})}\n\n"
+            yield {"data": json.dumps({"type": "stage1_start"})}
             stage1_results = await stage1_collect_responses(
                 request.content, session_id=session_id
             )
-            yield f"data: {json.dumps({'type': 'stage1_complete', 'data': stage1_results})}\n\n"
+            yield {"data": json.dumps({"type": "stage1_complete", "data": stage1_results})}
 
             # Stage 2: Collect rankings
-            yield f"data: {json.dumps({'type': 'stage2_start'})}\n\n"
+            yield {"data": json.dumps({"type": "stage2_start"})}
             stage2_results, label_to_model = await stage2_collect_rankings(
                 request.content, stage1_results, session_id=session_id
             )
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield f"data: {json.dumps({'type': 'stage2_complete', 'data': stage2_results, 'metadata': {'label_to_model': label_to_model, 'aggregate_rankings': aggregate_rankings}})}\n\n"
+            yield {"data": json.dumps({"type": "stage2_complete", "data": stage2_results, "metadata": {"label_to_model": label_to_model, "aggregate_rankings": aggregate_rankings}})}
 
             # Stage 3: Synthesize final answer
-            yield f"data: {json.dumps({'type': 'stage3_start'})}\n\n"
+            yield {"data": json.dumps({"type": "stage3_start"})}
             stage3_result = await stage3_synthesize_final(
                 request.content, stage1_results, stage2_results, session_id=session_id
             )
-            yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
+            yield {"data": json.dumps({"type": "stage3_complete", "data": stage3_result})}
 
             # Wait for title generation if it was started
             if title_task:
                 title = await title_task
                 await storage.update_conversation_title(conversation_id, title)
-                yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
+                yield {"data": json.dumps({"type": "title_complete", "data": {"title": title}})}
 
             # Save complete assistant message
             await storage.add_assistant_message(
@@ -268,14 +268,14 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             )
 
             # Send completion event
-            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            yield {"data": json.dumps({"type": "complete"})}
 
         except Exception as e:
             # Don't leak the background title task on failure.
             if title_task is not None:
                 title_task.cancel()
             # Send error event
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+            yield {"data": json.dumps({"type": "error", "message": str(e)})}
         finally:
             # Client disconnect cancels this generator with CancelledError /
             # GeneratorExit (BaseException, not caught above) — make sure the
@@ -284,14 +284,16 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             if title_task is not None and not title_task.done():
                 title_task.cancel()
 
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-        }
-    )
+    # EventSourceResponse serializes dict yields into spec-compliant SSE
+    # frames (`data: <json>\n\n`) and sets Content-Type
+    # (text/event-stream; charset=utf-8), Cache-Control, and Connection
+    # automatically — matching the previous manual headers and still
+    # accepted by the frontend's onopen Content-Type check. `ping=15`
+    # emits a keepalive comment (`: ping`) every 15 s so long-running
+    # stages don't trip proxy/browser timeouts (fetch-event-source ignores
+    # comment lines). It also surfaces client disconnects so the
+    # generator's finally block cancels the title task.
+    return EventSourceResponse(event_generator(), ping=15)
 
 
 if __name__ == "__main__":

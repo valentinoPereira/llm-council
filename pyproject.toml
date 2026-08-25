@@ -12,4 +12,5 @@ dependencies = [
     "pydantic>=2.9.0",
     "openrouter>=1.1.71",
     "aiosqlite>=0.22.1",
+    "sse-starlette>=2.0.0",
 ]

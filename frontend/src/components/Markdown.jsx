@@ -8,7 +8,7 @@ const remarkPlugins = [remarkGfm, remarkMath];
 const rehypePlugins = [rehypeKatex];
 
 const components = {
-  table: ({ node, ...props }) => (
+  table: ({ ...props }) => (
     <div className="table-wrapper">
       <table {...props} />
     </div>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
 import { formatDuration } from '../utils';
 import './Stage2.css';
@@ -16,8 +16,6 @@ function deAnonymizeText(text, labelToModel) {
 }
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
-  const [activeTab, setActiveTab] = useState(0);
-
   if (!rankings || rankings.length === 0) {
     return null;
   }
@@ -32,52 +30,56 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         Below, model names are shown in <strong>bold</strong> for readability, but the original evaluation used anonymous labels.
       </p>
 
-      <div className="tabs">
+      <Tabs.Root defaultValue="tab-0" orientation="horizontal">
+        <Tabs.List className="tabs">
+          {rankings.map((rank, index) => (
+            <Tabs.Trigger
+              key={index}
+              value={`tab-${index}`}
+              className="tab"
+            >
+              {rank.model.split('/')[1] || rank.model}
+              {rank.duration_ms != null && (
+                <span className="duration-badge">{formatDuration(rank.duration_ms)}</span>
+              )}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
+
         {rankings.map((rank, index) => (
-          <button
-            key={index}
-            className={`tab ${activeTab === index ? 'active' : ''}`}
-            onClick={() => setActiveTab(index)}
-          >
-            {rank.model.split('/')[1] || rank.model}
-            {rank.duration_ms != null && (
-              <span className="duration-badge">{formatDuration(rank.duration_ms)}</span>
+          <Tabs.Content key={index} value={`tab-${index}`} className="tab-content">
+            <div className="ranking-model">
+              {rank.model}
+              {rank.duration_ms != null && (
+                <span className="duration-detail">
+                  ⏱ {formatDuration(rank.duration_ms)}
+                </span>
+              )}
+            </div>
+            <div className="ranking-content markdown-content">
+              <Markdown>
+                {deAnonymizeText(rank.ranking, labelToModel)}
+              </Markdown>
+            </div>
+
+            {rank.parsed_ranking &&
+             rank.parsed_ranking.length > 0 && (
+              <div className="parsed-ranking">
+                <strong>Extracted Ranking:</strong>
+                <ol>
+                  {rank.parsed_ranking.map((label, i) => (
+                    <li key={i}>
+                      {labelToModel && labelToModel[label]
+                        ? labelToModel[label].split('/')[1] || labelToModel[label]
+                        : label}
+                    </li>
+                  ))}
+                </ol>
+              </div>
             )}
-          </button>
+          </Tabs.Content>
         ))}
-      </div>
-
-      <div className="tab-content">
-        <div className="ranking-model">
-          {rankings[activeTab].model}
-          {rankings[activeTab].duration_ms != null && (
-            <span className="duration-detail">
-              ⏱ {formatDuration(rankings[activeTab].duration_ms)}
-            </span>
-          )}
-        </div>
-        <div className="ranking-content markdown-content">
-          <Markdown>
-            {deAnonymizeText(rankings[activeTab].ranking, labelToModel)}
-          </Markdown>
-        </div>
-
-        {rankings[activeTab].parsed_ranking &&
-         rankings[activeTab].parsed_ranking.length > 0 && (
-          <div className="parsed-ranking">
-            <strong>Extracted Ranking:</strong>
-            <ol>
-              {rankings[activeTab].parsed_ranking.map((label, i) => (
-                <li key={i}>
-                  {labelToModel && labelToModel[label]
-                    ? labelToModel[label].split('/')[1] || labelToModel[label]
-                    : label}
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </div>
+      </Tabs.Root>
 
       {aggregateRankings && aggregateRankings.length > 0 && (
         <div className="aggregate-rankings">

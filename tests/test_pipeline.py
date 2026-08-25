@@ -218,6 +218,13 @@ async def main() -> int:
     finally:
         orouter.get_client = original_get_client
         await mock_http.aclose()
+        # The httpx ASGI transport in this test does not trigger the
+        # lifespan shutdown that normally closes the DB. Close it here
+        # before deleting the sandbox to avoid a hung connection thread.
+        try:
+            await backend.storage.close_db()
+        except Exception:
+            pass
         shutil.rmtree(SANDBOX, ignore_errors=True)
     return 0
 

@@ -1,11 +1,9 @@
-import { useState } from 'react';
+import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
 import { formatDuration } from '../utils';
 import './Stage1.css';
 
 export default function Stage1({ responses }) {
-  const [activeTab, setActiveTab] = useState(0);
-
   if (!responses || responses.length === 0) {
     return null;
   }
@@ -14,34 +12,38 @@ export default function Stage1({ responses }) {
     <div className="stage stage1">
       <h3 className="stage-title">Stage 1: Individual Responses</h3>
 
-      <div className="tabs">
-        {responses.map((resp, index) => (
-          <button
-            key={index}
-            className={`tab ${activeTab === index ? 'active' : ''}`}
-            onClick={() => setActiveTab(index)}
-          >
-            {resp.model.split('/')[1] || resp.model}
-            {resp.duration_ms != null && (
-              <span className="duration-badge">{formatDuration(resp.duration_ms)}</span>
-            )}
-          </button>
-        ))}
-      </div>
+      <Tabs.Root defaultValue="tab-0" orientation="horizontal">
+        <Tabs.List className="tabs">
+          {responses.map((resp, index) => (
+            <Tabs.Trigger
+              key={index}
+              value={`tab-${index}`}
+              className="tab"
+            >
+              {resp.model.split('/')[1] || resp.model}
+              {resp.duration_ms != null && (
+                <span className="duration-badge">{formatDuration(resp.duration_ms)}</span>
+              )}
+            </Tabs.Trigger>
+          ))}
+        </Tabs.List>
 
-      <div className="tab-content">
-        <div className="model-name">
-          {responses[activeTab].model}
-          {responses[activeTab].duration_ms != null && (
-            <span className="duration-detail">
-              ⏱ {formatDuration(responses[activeTab].duration_ms)}
-            </span>
-          )}
-        </div>
-        <div className="response-text markdown-content">
-          <Markdown>{responses[activeTab].response}</Markdown>
-        </div>
-      </div>
+        {responses.map((resp, index) => (
+          <Tabs.Content key={index} value={`tab-${index}`} className="tab-content">
+            <div className="model-name">
+              {resp.model}
+              {resp.duration_ms != null && (
+                <span className="duration-detail">
+                  ⏱ {formatDuration(resp.duration_ms)}
+                </span>
+              )}
+            </div>
+            <div className="response-text markdown-content">
+              <Markdown>{resp.response}</Markdown>
+            </div>
+          </Tabs.Content>
+        ))}
+      </Tabs.Root>
     </div>
   );
 }

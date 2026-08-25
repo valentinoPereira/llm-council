@@ -35,7 +35,7 @@
       border-color: var(--primary);
     }
 
-    &.active {
+    &[data-state="active"] {
       background: var(--bg-app);
       color: var(--primary);
       border-color: var(--primary);
@@ -76,7 +76,7 @@
     line-height: 1.4;
   }
 
-  .tab.active .duration-badge {
+  .tab[data-state="active"] .duration-badge {
     color: var(--primary);
     background: var(--primary-soft);
   }

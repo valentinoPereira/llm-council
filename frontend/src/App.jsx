@@ -1,177 +1,221 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Routes, Route, useParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  Routes,
+  Route,
+  useParams,
+  useNavigate,
+  useLocation,
+} from 'react-router-dom';
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+  useMutation,
+  useQueryClient,
+} from '@tanstack/react-query';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import { api } from './api';
 import './App.css';
 
-// Single source of truth for the optimistic-message + SSE-stream loop.
-// Shared by both the home route (creates a new convo on first send) and the
-// /c/:conversationId route (streams against an existing one).
-//
-// Returns:
-//   messages       — full message list (user + assistant) for the active chat
-//   isLoading      — true while a stream is in flight
-//   loadMessages   — fetch an existing conversation's history by id
-//   submit         — send a user message; creates a new convo if id is null
-function useConversationStream() {
-  const [messages, setMessages] = useState([]);
-  const [isLoading, setIsLoading] = useState(false);
-  // Tracks the conversation we are currently bound to. Guards against
-  // stale async resolves (e.g. user navigates away mid-fetch).
-  const activeIdRef = useRef(null);
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 0,
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
-  const loadMessages = useCallback(async (conversationId) => {
-    activeIdRef.current = conversationId;
-    setMessages([]);
-    setIsLoading(false);
-    const conv = await api.getConversation(conversationId);
-    // Drop the result if the user has navigated away mid-fetch.
-    if (activeIdRef.current === conversationId) {
-      setMessages(conv.messages ?? []);
-    }
-    return conv;
-  }, []);
+function useConversations() {
+  return useQuery({
+    queryKey: ['conversations'],
+    queryFn: api.listConversations,
+  });
+}
 
-  const submit = useCallback(async (content, conversationId) => {
-    let targetId = conversationId;
+function useConversation(conversationId) {
+  return useQuery({
+    queryKey: ['conversation', conversationId],
+    queryFn: () => api.getConversation(conversationId),
+    enabled: !!conversationId,
+    retry: false,
+  });
+}
 
-    if (!targetId) {
-      const newConv = await api.createConversation();
-      targetId = newConv.id;
-    }
+function useCreateConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.createConversation,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+}
 
-    activeIdRef.current = targetId;
+function useSendMessage() {
+  const queryClient = useQueryClient();
 
-    // Optimistic: append user message + skeleton assistant message.
-    const userMessage = { role: 'user', content };
-    const assistantMessage = {
-      role: 'assistant',
-      stage1: null,
-      stage2: null,
-      stage3: null,
-      metadata: null,
-      loading: { stage1: false, stage2: false, stage3: false },
-    };
-    setMessages((prev) => [...prev, userMessage, assistantMessage]);
-    setIsLoading(true);
+  return useMutation({
+    mutationFn: async ({ conversationId, content }) => {
+      let targetId = conversationId;
+      let newConversation = null;
 
-    const updateLast = (mutator) => {
-      setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last && last.role === 'assistant') {
-          mutator(last);
-        }
-        return next;
+      if (!targetId) {
+        newConversation = await api.createConversation();
+        targetId = newConversation.id;
+      }
+
+      const userMessage = { role: 'user', content };
+      const assistantMessage = {
+        role: 'assistant',
+        stage1: null,
+        stage2: null,
+        stage3: null,
+        metadata: null,
+        loading: { stage1: false, stage2: false, stage3: false },
+      };
+
+      queryClient.setQueryData(['conversation', targetId], (old) => ({
+        ...(old ?? newConversation ?? { id: targetId }),
+        messages: [...(old?.messages ?? []), userMessage, assistantMessage],
+      }));
+
+      let streamError = null;
+
+      try {
+        await api.sendMessageStream(targetId, content, (eventType, event) => {
+          if (eventType === 'error') {
+            streamError = new Error(event.message ?? 'Stream error');
+            return;
+          }
+
+          if (eventType === 'title_complete') {
+            queryClient.setQueryData(
+              ['conversation', targetId],
+              (old) =>
+                old ? { ...old, title: event.data.title } : old
+            );
+            queryClient.setQueryData(['conversations'], (old) => {
+              if (!old) return old;
+              return old.map((c) =>
+                c.id === targetId
+                  ? { ...c, title: event.data.title }
+                  : c
+              );
+            });
+            return;
+          }
+
+          queryClient.setQueryData(['conversation', targetId], (old) => {
+            if (!old) return old;
+            const messages = [...old.messages];
+            const lastIdx = messages.length - 1;
+            const last = messages[lastIdx];
+            if (!last || last.role !== 'assistant') return old;
+
+            const nextLast = { ...last };
+
+            switch (eventType) {
+              case 'stage1_start':
+                nextLast.loading = { ...nextLast.loading, stage1: true };
+                break;
+              case 'stage1_complete':
+                nextLast.stage1 = event.data;
+                nextLast.loading = { ...nextLast.loading, stage1: false };
+                break;
+              case 'stage2_start':
+                nextLast.loading = { ...nextLast.loading, stage2: true };
+                break;
+              case 'stage2_complete':
+                nextLast.stage2 = event.data;
+                nextLast.metadata = event.metadata;
+                nextLast.loading = { ...nextLast.loading, stage2: false };
+                break;
+              case 'stage3_start':
+                nextLast.loading = { ...nextLast.loading, stage3: true };
+                break;
+              case 'stage3_complete':
+                nextLast.stage3 = event.data;
+                nextLast.loading = { ...nextLast.loading, stage3: false };
+                break;
+              default:
+                break;
+            }
+
+            messages[lastIdx] = nextLast;
+            return { ...old, messages };
+          });
+        });
+      } catch (error) {
+        // Network/parse errors become stream errors too.
+        streamError = streamError ?? error;
+      }
+
+      if (streamError) {
+        // Roll back the optimistic pair so the UI doesn't lie.
+        queryClient.setQueryData(['conversation', targetId], (old) => {
+          if (!old) return old;
+          const messages = old.messages;
+          const tail = messages.slice(-2);
+          if (
+            tail.length === 2 &&
+            tail[0].role === 'user' &&
+            tail[0].content === content &&
+            tail[1].role === 'assistant'
+          ) {
+            return { ...old, messages: messages.slice(0, -2) };
+          }
+          return old;
+        });
+        throw streamError;
+      }
+
+      return targetId;
+    },
+    onMutate: async ({ conversationId }) => {
+      if (!conversationId) return {};
+      await queryClient.cancelQueries({
+        queryKey: ['conversation', conversationId],
       });
-    };
-
-    try {
-      await api.sendMessageStream(targetId, content, (eventType, event) => {
-        switch (eventType) {
-          case 'stage1_start':
-            updateLast((m) => {
-              m.loading.stage1 = true;
-            });
-            break;
-          case 'stage1_complete':
-            updateLast((m) => {
-              m.stage1 = event.data;
-              m.loading.stage1 = false;
-            });
-            break;
-          case 'stage2_start':
-            updateLast((m) => {
-              m.loading.stage2 = true;
-            });
-            break;
-          case 'stage2_complete':
-            updateLast((m) => {
-              m.stage2 = event.data;
-              m.metadata = event.metadata;
-              m.loading.stage2 = false;
-            });
-            break;
-          case 'stage3_start':
-            updateLast((m) => {
-              m.loading.stage3 = true;
-            });
-            break;
-          case 'stage3_complete':
-            updateLast((m) => {
-              m.stage3 = event.data;
-              m.loading.stage3 = false;
-            });
-            break;
-          case 'complete':
-            setIsLoading(false);
-            break;
-          case 'error':
-            console.error('Stream error:', event.message);
-            setIsLoading(false);
-            // Roll back the optimistic pair so the UI doesn't lie.
-            setMessages((prev) => prev.slice(0, -2));
-            break;
-          default:
-            break;
-        }
-      });
-    } catch (error) {
-      console.error('Failed to send message:', error);
-      setMessages((prev) => prev.slice(0, -2));
-      setIsLoading(false);
-    }
-
-    return targetId;
-  }, []);
-
-  return { messages, isLoading, loadMessages, submit };
+      const previousConversation = queryClient.getQueryData([
+        'conversation',
+        conversationId,
+      ]);
+      return { previousConversation, conversationId };
+    },
+    onError: (error, variables, context) => {
+      if (context?.previousConversation !== undefined) {
+        queryClient.setQueryData(
+          ['conversation', context.conversationId],
+          context.previousConversation
+        );
+      }
+    },
+    onSettled: (targetId, error, variables) => {
+      const id = targetId || variables.conversationId;
+      if (id) {
+        queryClient.invalidateQueries({ queryKey: ['conversation', id] });
+      }
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
 }
 
 function App() {
-  const [conversations, setConversations] = useState([]);
+  const { data: conversations = [] } = useConversations();
   const navigate = useNavigate();
+  const create = useCreateConversation();
 
-  // Load the sidebar conversation list once on mount.
-  useEffect(() => {
-    (async () => {
-      try {
-        const convs = await api.listConversations();
-        setConversations(convs);
-      } catch (error) {
-        console.error('Failed to load conversations:', error);
-      }
-    })();
-  }, []);
-
-  const refreshConversations = useCallback(async () => {
-    try {
-      const convs = await api.listConversations();
-      setConversations(convs);
-    } catch (error) {
-      console.error('Failed to load conversations:', error);
-    }
-  }, []);
-
-  // "New Conversation" button — explicit create + navigate.
   const handleNewConversation = useCallback(async () => {
     try {
-      const newConv = await api.createConversation();
-      setConversations((prev) => [
-        {
-          id: newConv.id,
-          created_at: newConv.created_at,
-          title: newConv.title,
-          message_count: 0,
-        },
-        ...prev,
-      ]);
+      const newConv = await create.mutateAsync();
       navigate(`/c/${newConv.id}`);
-    } catch (error) {
-      console.error('Failed to create conversation:', error);
+    } catch (err) {
+      console.error('Failed to create conversation:', err);
     }
-  }, [navigate]);
+  }, [create, navigate]);
 
   return (
     <div className="app">
@@ -180,82 +224,92 @@ function App() {
         onNewConversation={handleNewConversation}
       />
       <Routes>
-        <Route path="/" element={<HomeRoute onConversationsChanged={refreshConversations} />} />
+        <Route path="/" element={<HomeRoute />} />
         <Route
           path="/c/:conversationId"
-          element={<ChatRouteContainer onConversationsChanged={refreshConversations} />}
+          element={<ChatRouteContainer />}
         />
       </Routes>
     </div>
   );
 }
 
-// Home route — no active conversation. First send creates one and routes
-// into /c/:id so reload preserves the session.
-function HomeRoute({ onConversationsChanged }) {
-  const { messages, isLoading, submit } = useConversationStream();
+function HomeRoute() {
   const navigate = useNavigate();
+  const create = useCreateConversation();
+  const [isCreating, setIsCreating] = useState(false);
 
-  const handleSend = async (content) => {
-    const newId = await submit(content, null);
-    if (newId) {
-      navigate(`/c/${newId}`, { replace: true });
-      onConversationsChanged?.();
-    }
-  };
+  const handleSend = useCallback(
+    async (content) => {
+      setIsCreating(true);
+      try {
+        const newConv = await create.mutateAsync();
+        navigate(`/c/${newConv.id}`, {
+          state: { initialMessage: content },
+          replace: true,
+        });
+      } catch (err) {
+        console.error('Failed to start conversation:', err);
+      } finally {
+        setIsCreating(false);
+      }
+    },
+    [create, navigate]
+  );
 
   return (
     <ChatInterface
-      conversation={{ messages }}
+      conversation={{ messages: [] }}
       onSendMessage={handleSend}
-      isLoading={isLoading}
+      isLoading={isCreating || create.isPending}
     />
   );
 }
 
-// /c/:conversationId route — load existing chat, or redirect home on 404.
-// The container passes :conversationId as React `key`, so the inner ChatRoute
-// (and its useConversationStream hook) remounts on every chat switch. That
-// gives us a clean slate: empty messages, no stale state from the previous
-// chat, no manual resets.
-function ChatRouteContainer({ onConversationsChanged }) {
+function ChatRouteContainer() {
   const { conversationId } = useParams();
-  return (
-    <ChatRoute
-      key={conversationId}
-      conversationId={conversationId}
-      onConversationsChanged={onConversationsChanged}
-    />
-  );
+  return <ChatRoute key={conversationId} conversationId={conversationId} />;
 }
 
-function ChatRoute({ conversationId, onConversationsChanged }) {
+function ChatRoute({ conversationId }) {
   const navigate = useNavigate();
-  const { messages, isLoading, submit, loadMessages } = useConversationStream();
-  const [hasLoaded, setHasLoaded] = useState(false);
+  const location = useLocation();
+  const {
+    data: conversation,
+    isLoading,
+    isError,
+  } = useConversation(conversationId);
+  const send = useSendMessage();
+  const initialSentRef = useRef(false);
 
   useEffect(() => {
-    let cancelled = false;
-    loadMessages(conversationId)
-      .then(() => {
-        if (!cancelled) setHasLoaded(true);
-      })
-      .catch(() => {
-        if (!cancelled) navigate('/', { replace: true });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [loadMessages, conversationId, navigate]);
+    if (isError) {
+      navigate('/', { replace: true });
+    }
+  }, [isError, navigate]);
 
-  const handleSend = async (content) => {
-    await submit(content, conversationId);
-    onConversationsChanged?.();
-  };
+  useEffect(() => {
+    const initialMessage = location.state?.initialMessage;
+    if (
+      initialMessage &&
+      !send.isPending &&
+      !initialSentRef.current &&
+      conversation?.messages?.length === 0
+    ) {
+      initialSentRef.current = true;
+      send.mutate({ conversationId, content: initialMessage });
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [conversationId, conversation, location, navigate, send]);
 
-  // While the initial fetch is in flight, render an empty chat shell so
-  // we don't flash the "Start a conversation" view over real history.
-  if (!hasLoaded) {
+  const handleSend = useCallback(
+    (content) => {
+      send.mutate({ conversationId, content });
+    },
+    [send, conversationId]
+  );
+
+  if (isLoading || !conversation) {
     return (
       <ChatInterface
         conversation={null}
@@ -267,11 +321,17 @@ function ChatRoute({ conversationId, onConversationsChanged }) {
 
   return (
     <ChatInterface
-      conversation={{ messages }}
+      conversation={conversation}
       onSendMessage={handleSend}
-      isLoading={isLoading}
+      isLoading={send.isPending}
     />
   );
 }
 
-export default App;
+export default function AppWithProviders() {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
+  );
+}

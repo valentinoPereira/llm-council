@@ -1,4 +1,4 @@
-# CLAUDE.md - Technical Notes for LLM Council
+# AGENTS.md - Technical Notes for LLM Council
 
 This file contains technical details, architectural decisions, and important implementation notes for future development sessions.
 

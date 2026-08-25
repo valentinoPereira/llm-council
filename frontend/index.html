@@ -7,7 +7,9 @@
     <title>LLM Coucil</title>
     <script>
       // FOUC prevention: apply theme before first paint.
-      // Matches logic in useTheme.js.
+      // Compatible with next-themes (storage key "theme"; "light"/"dark"
+      // pin the attribute, anything else incl. "system"/absent follows the OS
+      // via :root { color-scheme: light dark } in theme.css).
       (function() {
         var t = localStorage.getItem('theme');
         if (t === 'light' || t === 'dark') {

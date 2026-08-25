@@ -1,51 +1,48 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { useTheme } from 'next-themes';
 import './ThemeToggle.css';
 
 const LABELS = { system: 'System', light: 'Light', dark: 'Dark' };
 const ICONS  = { system: '🖥️',  light: '☀️',  dark: '🌙'  };
 
+// System → Light → Dark → System (matches the previous three-state cycle).
+const NEXT = { system: 'light', light: 'dark', dark: 'system' };
+
 /**
- * Three-state theme toggle: System → Light → Dark → System.
+ * Three-state theme toggle backed by `next-themes`.
  *
- * State is stored in localStorage["theme"] ("light" | "dark" | absent =
- * follow OS).  The :root[data-theme] attribute and color-scheme are
- * managed reactively so light-dark() values resolve correctly.
+ * `next-themes` owns all persistence (localStorage key "theme"), OS-preference
+ * listening (prefers-color-scheme), cross-tab sync, and the `data-theme`
+ * attribute on <html>. This component just reads the active theme and cycles it.
  */
 export default function ThemeToggle() {
-  const readMode = () => localStorage.getItem('theme') || 'system';
-  const [mode, setMode] = useState(readMode);
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    // Sync across tabs
-    const onStorage = (e) => {
-      if (e.key === 'theme') setMode(e.newValue || 'system');
-    };
-    window.addEventListener('storage', onStorage);
-    return () => window.removeEventListener('storage', onStorage);
-  }, []);
+  // `next-themes` resolves `theme` in an effect after first render, so we gate
+  // the visible UI on mount to avoid a flash of the wrong label/icon. This is
+  // the canonical next-themes mount-guard pattern (a one-shot external-system
+  // sync), hence the targeted rule exception.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => setMounted(true), []);
 
-  const cycle = () => {
-    const next = mode === 'system' ? 'light' : mode === 'light' ? 'dark' : 'system';
+  // `theme` is undefined until next-themes resolves on mount; render a
+  // same-shaped placeholder to avoid a flash of the wrong label/icon.
+  if (!mounted) {
+    return <button className="theme-toggle" aria-hidden disabled />;
+  }
 
-    if (next === 'system') {
-      localStorage.removeItem('theme');
-      delete document.documentElement.dataset.theme;
-    } else {
-      localStorage.setItem('theme', next);
-      document.documentElement.dataset.theme = next;
-    }
-    setMode(next);
-  };
+  const current = theme === 'light' || theme === 'dark' ? theme : 'system';
 
   return (
     <button
       className="theme-toggle"
-      onClick={cycle}
-      title={`Theme: ${LABELS[mode]} (click to cycle)`}
-      aria-label={`Current theme: ${LABELS[mode]}`}
+      onClick={() => setTheme(NEXT[current])}
+      title={`Theme: ${LABELS[current]} (click to cycle)`}
+      aria-label={`Current theme: ${LABELS[current]}`}
     >
-      <span className="theme-toggle-icon">{ICONS[mode]}</span>
-      <span className="theme-toggle-label">{LABELS[mode]}</span>
+      <span className="theme-toggle-icon">{ICONS[current]}</span>
+      <span className="theme-toggle-label">{LABELS[current]}</span>
     </button>
   );
 }

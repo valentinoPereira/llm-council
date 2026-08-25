@@ -25,6 +25,9 @@ from .openrouter import close_client, get_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Open the SQLite database and ensure the schema exists before serving
+    # any request.
+    await storage.init_db()
     # Eagerly initialize the shared httpx client so the first request doesn't
     # pay the connection-pool setup cost.
     get_client()
@@ -32,6 +35,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await close_client()
+        await storage.close_db()
 
 
 app = FastAPI(title="LLM Council API", lifespan=lifespan)
@@ -62,13 +66,6 @@ def openrouter_session_id(conversation_id: str) -> str:
     requests in its console/dashboard.
     """
     return f"llm-council-{conversation_id}"[:OPENROUTER_SESSION_ID_MAX]
-
-# Storage functions are sync and touch the disk; run them in the default
-# thread pool so they don't block the event loop. Wrap them once here so
-# endpoint handlers stay readable.
-def _to_thread(func, *args, **kwargs):
-    return asyncio.to_thread(func, *args, **kwargs)
-
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
@@ -105,21 +102,21 @@ async def root():
 @app.get("/api/conversations", response_model=List[ConversationMetadata])
 async def list_conversations():
     """List all conversations (metadata only)."""
-    return await _to_thread(storage.list_conversations)
+    return await storage.list_conversations()
 
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: CreateConversationRequest):
     """Create a new conversation."""
     conversation_id = str(uuid.uuid4())
-    conversation = await _to_thread(storage.create_conversation, conversation_id)
+    conversation = await storage.create_conversation(conversation_id)
     return conversation
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=Conversation)
 async def get_conversation(conversation_id: str):
     """Get a specific conversation with all its messages."""
-    conversation = await _to_thread(storage.get_conversation, conversation_id)
+    conversation = await storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
@@ -132,7 +129,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     Returns the complete response with all stages.
     """
     # Check if conversation exists
-    conversation = await _to_thread(storage.get_conversation, conversation_id)
+    conversation = await storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -142,7 +139,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     # Add user message (translates the input-length guard into a client error
     # instead of a bare 500)
     try:
-        await _to_thread(storage.add_user_message, conversation_id, request.content)
+        await storage.add_user_message(conversation_id, request.content)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -170,8 +167,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
         raise
 
     # Add assistant message with all stages
-    await _to_thread(
-        storage.add_assistant_message,
+    await storage.add_assistant_message(
         conversation_id,
         stage1_results,
         stage2_results,
@@ -182,7 +178,7 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
     # Persist the title if it was being generated.
     if title_task is not None:
         title = await title_task
-        await _to_thread(storage.update_conversation_title, conversation_id, title)
+        await storage.update_conversation_title(conversation_id, title)
 
     # Return the complete response with metadata
     return {
@@ -200,7 +196,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
     Returns Server-Sent Events as each stage completes.
     """
     # Check if conversation exists
-    conversation = await _to_thread(storage.get_conversation, conversation_id)
+    conversation = await storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -226,7 +222,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
         title_task: asyncio.Task[str] | None = None
         try:
             # Add user message
-            await _to_thread(storage.add_user_message, conversation_id, request.content)
+            await storage.add_user_message(conversation_id, request.content)
 
             # Start title generation in parallel (don't await yet)
             if is_first_message:
@@ -259,12 +255,11 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Wait for title generation if it was started
             if title_task:
                 title = await title_task
-                await _to_thread(storage.update_conversation_title, conversation_id, title)
+                await storage.update_conversation_title(conversation_id, title)
                 yield f"data: {json.dumps({'type': 'title_complete', 'data': {'title': title}})}\n\n"
 
             # Save complete assistant message
-            await _to_thread(
-                storage.add_assistant_message,
+            await storage.add_assistant_message(
                 conversation_id,
                 stage1_results,
                 stage2_results,

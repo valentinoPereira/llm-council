@@ -10,7 +10,7 @@ LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively
 
 - **Backend:** Python / FastAPI (`backend/`), runs on port **8001**. OpenRouter (official `openrouter` SDK) provides model access. Requires `OPENROUTER_API_KEY` in `.env`.
 - **Frontend:** React + Vite (`frontend/`), runs on port **5173**. React Router v7 with `BrowserRouter`; conversation URLs are `/c/:conversationId`.
-- **Storage:** JSON files in `data/conversations/`.
+- **Storage:** SQLite (`aiosqlite`) in `data/conversations/council.db`, accessed only via `backend/storage.py`. Legacy JSON files in that dir are pre-migration leftovers.
 - **Models:** configured in `backend/config.py` (`COUNCIL_MODELS` + `CHAIRMAN_MODEL`).
 
 ## Data Flow
@@ -36,10 +36,10 @@ The entire flow is async/parallel where possible to minimize latency.
 ## Rules
 
 See `.clinerules/`:
-- `project-conventions.md` — always-on (packages over DIY, relative imports, module execution, model testing)
+- `project-conventions.md` — always-on (packages over DIY, relative imports, module execution)
 - `architecture.md` — always-on (layering, pipeline semantics, storage schema, frontend structure, transparency)
-- `backend.md` — backend code and tests (ports, CORS, graceful degradation, metadata, ranking parsing)
+- `backend.md` — backend code (ports, CORS, graceful degradation, metadata, ranking parsing)
+- `testing.md` — backend tests (mock injection pattern)
 - `frontend.md` — frontend code (routing, markdown wrapper, de-anonymization)
 - `styling.md` — CSS/theming (light-dark tokens, color-mix, markdown padding)
 - `openrouter-sessions.md` — backend code and tests (session id rules)
-- `commands.md` — always-on (use git bash for commands)

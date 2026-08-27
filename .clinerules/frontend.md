@@ -21,4 +21,4 @@ paths:
 
 ## Metadata
 
-- Metadata is stored in the UI state for display but not persisted to backend JSON.
+- Metadata comes from the backend stream and lives in the React Query cache for display (see `architecture.md` → Frontend structure).

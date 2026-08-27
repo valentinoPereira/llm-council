@@ -11,6 +11,3 @@ Prefer established libraries (react-router-dom, zustand, etc.) over hand-rolled 
 - All backend modules use relative imports (e.g., `from .config import ...`), never absolute imports. This is critical for Python's module system.
 - Always run the backend as `python -m backend.main` from the project root, never from the `backend/` directory.
 
-## Adding council models
-
-Before adding any model identifier to the council, verify API connectivity and the model identifier using `test_openrouter.py` (tests both streaming and non-streaming modes).

@@ -14,3 +14,8 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "sse-starlette>=2.0.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

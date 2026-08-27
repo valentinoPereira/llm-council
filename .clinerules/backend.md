@@ -22,7 +22,7 @@ paths:
 
 ## Metadata persistence
 
-- Metadata (`label_to_model`, `aggregate_rankings`) is NOT persisted to storage — it is ephemeral and only returned via the API.
+- Metadata (`label_to_model`, `aggregate_rankings`) IS persisted: stored as a JSON blob in the `messages.metadata` column. If you change its shape, update `storage.py` and the frontend consumers together.
 
 ## Ranking parsing
 
@@ -38,7 +38,3 @@ paths:
 - Every successful response from `query_model()` includes `duration_ms` (round-trip wall time from `time.perf_counter()`); keep this contract on any new response path.
 - `query_model()` / `query_models_parallel()` accept an optional `stage` label (`"stage1"`, `"stage2"`, `"stage3"`, `"title"`) used for per-call `[timing]` logs; stage totals log as `[timing] stage=<stage> total=Xs slowest=<model>`.
 - `reasoning_details` from the SDK are serialized to plain JSON-safe dicts inside `openrouter.py` before leaving the adapter — never leak SDK types to callers.
-
-## Testing conventions
-
-- Tests inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `openrouter.get_client()` — the SDK applies auth itself; the injected client only supplies the transport. Follow this pattern for new model-call tests.

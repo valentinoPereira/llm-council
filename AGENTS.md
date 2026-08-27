@@ -1,189 +1,19 @@
-# AGENTS.md - Technical Notes for LLM Council
+# AGENTS.md - LLM Council
 
-This file contains technical details, architectural decisions, and important implementation notes for future development sessions.
+Minimal project context for AI agents. All coding rules and conventions live in `.clinerules/` (Cline rules format).
 
 ## Project Overview
 
 LLM Council is a 3-stage deliberation system where multiple LLMs collaboratively answer user questions. The key innovation is anonymized peer review in Stage 2, preventing models from playing favorites.
 
-## Project Rules
+## Tech Stack
 
-- **Packages over DIY.** Prefer established libraries (react-router-dom, zustand, etc.) over hand-rolled hooks/utils. Custom hooks are fine when wrapping library primitives or composing app-specific state; reach for a package the moment the DIY version would reimplement a known wheel.
+- **Backend:** Python / FastAPI (`backend/`), runs on port **8001**. OpenRouter (official `openrouter` SDK) provides model access. Requires `OPENROUTER_API_KEY` in `.env`.
+- **Frontend:** React + Vite (`frontend/`), runs on port **5173**. React Router v7 with `BrowserRouter`; conversation URLs are `/c/:conversationId`.
+- **Storage:** JSON files in `data/conversations/`.
+- **Models:** configured in `backend/config.py` (`COUNCIL_MODELS` + `CHAIRMAN_MODEL`).
 
-## Routing
-
-- React Router v7, `<BrowserRouter>` in `src/main.jsx`
-- Routes: `/` (new chat / home) and `/c/:conversationId`
-- URL is the source of truth — `useParams()` drives which chat is loaded
-- `useConversationStream()` hook owns the optimistic-message + SSE loop
-- `ChatRoute` reads :conversationId, fetches via `api.getConversation`, redirects to `/` on 404
-- `HomeRoute` submits a new conversation on first send and `navigate('/c/<id>', { replace: true })`
-- `Sidebar` uses `<NavLink to={'/c/' + id}>` (active class via `isActive`); scrolls the active item into view via `data-conversation-id` querySelector + `scrollIntoView({ block: 'nearest' })`
-- **Production hosts must serve `index.html` for all `/c/*` paths** (SPA fallback). Vite dev server handles this automatically.
-
-## Architecture
-
-### Backend Structure (`backend/`)
-
-**`config.py`**
-- Contains `COUNCIL_MODELS` (list of OpenRouter model identifiers)
-- Contains `CHAIRMAN_MODEL` (model that synthesizes final answer)
-- Uses environment variable `OPENROUTER_API_KEY` from `.env`
-- Backend runs on **port 8001** (NOT 8000 - user had another app on 8000)
-
-**`openrouter.py`**
-- Thin adapter over the official `openrouter` Python SDK (PyPI package `openrouter`, Speakeasy-generated)
-- `query_model()`: Single async model query via `client.chat.send_async()`; accepts optional `session_id` (OpenRouter session for grouping/sticky routing)
-- `query_models_parallel()`: Parallel queries using `asyncio.gather()`; forwards `session_id` to every request
-- Returns dict with 'content', 'duration_ms', and optional 'reasoning_details' (serialized to plain dicts)
-- SDK owns auth, typing/validation, connection pooling, and retries (`_RETRY_CONFIG`: 429/5xx + connection errors, backoff bounded to ~2.5s)
-- `query_model()` and `query_models_parallel()` accept an optional `stage` label (e.g. `"stage1"`, `"stage2"`, `"stage3"`, `"title"`) for per-call `[timing]` logs
-- Graceful degradation: returns None on failure, continues with successful responses
-- Every successful response includes `duration_ms` (round-trip wall time from `time.perf_counter()`)
-- Tests inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `get_client()`
-
-**`council.py`** - The Core Logic
-- `stage1_collect_responses()`: Parallel queries to all council models, returns `duration_ms` per model
-- `stage2_collect_rankings()`:
-  - Anonymizes responses as "Response A, B, C, etc."
-  - Creates `label_to_model` mapping for de-anonymization
-  - Prompts models to evaluate and rank (with strict format requirements)
-  - Returns tuple: (rankings_list, label_to_model_dict)
-  - Each ranking includes raw text, `parsed_ranking` list, and `duration_ms`
-  - Stage totals logged as `[timing] stage=stage1 total=Xs slowest=<model>`
-- `stage3_synthesize_final()`: Chairman synthesizes from all responses + rankings, includes `duration_ms`
-- `parse_ranking_from_text()`: Extracts "FINAL RANKING:" section, handles both numbered lists and plain format
-- `calculate_aggregate_rankings()`: Computes average rank position across all peer evaluations
-
-**`storage.py`**
-- JSON-based conversation storage in `data/conversations/`
-- Each conversation: `{id, created_at, messages[]}`
-- Assistant messages contain: `{role, stage1, stage2, stage3}`
-- Note: metadata (label_to_model, aggregate_rankings) is NOT persisted to storage, only returned via API
-
-**`main.py`**
-- FastAPI app with CORS enabled for localhost:5173 and localhost:3000
-- POST `/api/conversations/{id}/message` returns metadata in addition to stages
-- Metadata includes: label_to_model mapping and aggregate_rankings
-
-### OpenRouter Sessions
-
-One conversation = one OpenRouter session (grouping + sticky routing in the OpenRouter console, like the `pi-openrouter-session` extension):
-- `main.openrouter_session_id(conversation_id)` builds a deterministic id: `llm-council-<conversation_id>` (max 256 chars per OpenRouter limit)
-- The same session id is passed to **every** model call in the conversation: stages 1-3 and title generation, on both the REST and streaming endpoints
-- Derived purely from the conversation id so it never changes mid-conversation (important: a session id that changes would break sticky routing and split the group in the console)
-- `session_id` is a request body field on `/chat/completions` (also accepted as `x-session-id` header); the SDK accepts it as `session_id=` on `chat.send_async()`
-- Note: sessions are routing/observability only — OpenRouter does NOT store conversation memory; full message history must still be sent per request (the council currently sends only the current user query per turn)
-
-### Frontend Structure (`frontend/src/`)
-
-**`App.jsx`**
-- Main orchestration: manages conversations list and current conversation
-- Handles message sending and metadata storage
-- Important: metadata is stored in the UI state for display but not persisted to backend JSON
-
-**`components/ChatInterface.jsx`**
-- Multiline textarea (3 rows, resizable)
-- Enter to send, Shift+Enter for new line
-- User messages wrapped in markdown-content class for padding
-
-**`components/Stage1.jsx`**
-- Tab view of individual model responses
-- ReactMarkdown rendering with markdown-content wrapper
-- Shows per-model `⏱` timing badge in tab and next to model name
-
-**`components/Stage2.jsx`**
-- **Critical Feature**: Tab view showing RAW evaluation text from each model
-- De-anonymization happens CLIENT-SIDE for display (models receive anonymous labels)
-- Shows "Extracted Ranking" below each evaluation so users can validate parsing
-- Per-model timing badges in tabs and header
-- Aggregate rankings shown with average position and vote count
-- Explanatory text clarifies that boldface model names are for readability only
-
-**`components/Stage3.jsx`**
-- Final synthesized answer from chairman
-- Green-tinted background (#f0fff0) to highlight conclusion
-- Chairman timing displayed next to model label
-
-**Styling (`*.css`)**
-- Modern CSS (nesting, `light-dark()`, `color-mix()`) with CSS custom properties for theming
-- Semantic tokens defined in `src/theme.css` via `:root { --bg-app: light-dark(#fff, #1e1f22); ... }`
-- `color-scheme: light dark` on `:root` makes `light-dark()` follow the OS by default
-- Manual toggle: `data-theme="light"|"dark"` on `<html>` pins `color-scheme`; absent = follow OS
-- Light values = the original colors (pixel-identical in light mode); dark values tuned for readability
-- Derived hovers use `color-mix(in oklch, ...)` instead of hardcoded hex
-- Global markdown styling in `index.css` with `.markdown-content` class (uses nesting)
-- 12px padding on all markdown content to prevent cluttered appearance
-- Browser note: `light-dark()` requires Safari ≥ 17.5 / Chrome ≥ 123 / Firefox ≥ 120
-
-## Key Design Decisions
-
-### Stage 2 Prompt Format
-The Stage 2 prompt is very specific to ensure parseable output:
-```
-1. Evaluate each response individually first
-2. Provide "FINAL RANKING:" header
-3. Numbered list format: "1. Response C", "2. Response A", etc.
-4. No additional text after ranking section
-```
-
-This strict format allows reliable parsing while still getting thoughtful evaluations.
-
-### De-anonymization Strategy
-- Models receive: "Response A", "Response B", etc.
-- Backend creates mapping: `{"Response A": "openai/gpt-5.1", ...}`
-- Frontend displays model names in **bold** for readability
-- Users see explanation that original evaluation used anonymous labels
-- This prevents bias while maintaining transparency
-
-### Error Handling Philosophy
-- Continue with successful responses if some models fail (graceful degradation)
-- Never fail the entire request due to single model failure
-- Log errors but don't expose to user unless all models fail
-
-### UI/UX Transparency
-- All raw outputs are inspectable via tabs
-- Parsed rankings shown below raw text for validation
-- Users can verify system's interpretation of model outputs
-- This builds trust and allows debugging of edge cases
-
-## Important Implementation Details
-
-### Relative Imports
-All backend modules use relative imports (e.g., `from .config import ...`) not absolute imports. This is critical for Python's module system to work correctly when running as `python -m backend.main`.
-
-### Port Configuration
-- Backend: 8001 (changed from 8000 to avoid conflict)
-- Frontend: 5173 (Vite default)
-- Update both `backend/main.py` and `frontend/src/api.js` if changing
-
-### Markdown Rendering
-All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. This class is defined globally in `index.css`.
-
-### Model Configuration
-Models are hardcoded in `backend/config.py`. Chairman can be same or different from council members. The current default is Gemini as chairman per user preference.
-
-## Common Gotchas
-
-1. **Module Import Errors**: Always run backend as `python -m backend.main` from project root, not from backend directory
-2. **CORS Issues**: Frontend must match allowed origins in `main.py` CORS middleware
-3. **Ranking Parse Failures**: If models don't follow format, fallback regex extracts any "Response X" patterns in order
-4. **Missing Metadata**: Metadata is ephemeral (not persisted), only available in API responses
-
-## Future Enhancement Ideas
-
-- Configurable council/chairman via UI instead of config file
-- Streaming responses instead of batch loading
-- Export conversations to markdown/PDF
-- Model performance analytics over time
-- Custom ranking criteria (not just accuracy/insight)
-- Support for reasoning models (o1, etc.) with special handling
-
-## Testing Notes
-
-Use `test_openrouter.py` to verify API connectivity and test different model identifiers before adding to council. The script tests both streaming and non-streaming modes.
-
-## Data Flow Summary
+## Data Flow
 
 ```
 User Query
@@ -202,3 +32,14 @@ Frontend: Display with tabs + validation UI
 ```
 
 The entire flow is async/parallel where possible to minimize latency.
+
+## Rules
+
+See `.clinerules/`:
+- `project-conventions.md` — always-on (packages over DIY, relative imports, module execution, model testing)
+- `architecture.md` — always-on (layering, pipeline semantics, storage schema, frontend structure, transparency)
+- `backend.md` — backend code and tests (ports, CORS, graceful degradation, metadata, ranking parsing)
+- `frontend.md` — frontend code (routing, markdown wrapper, de-anonymization)
+- `styling.md` — CSS/theming (light-dark tokens, color-mix, markdown padding)
+- `openrouter-sessions.md` — backend code and tests (session id rules)
+- `commands.md` — always-on (use git bash for commands)

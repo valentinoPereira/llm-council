@@ -48,7 +48,8 @@ function useCreateConversation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: api.createConversation,
-    onSuccess: () => {
+    onSuccess: (conversation) => {
+      queryClient.setQueryData(['conversation', conversation.id], conversation);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
   });
@@ -208,26 +209,41 @@ function App() {
   const navigate = useNavigate();
   const create = useCreateConversation();
 
+  // The newest empty conversation is the canonical "new conversation".
+  const emptyConversation = conversations.find(
+    (conv) => conv.message_count === 0
+  );
+
   const handleNewConversation = useCallback(async () => {
+    // If we already have an empty conversation, just open it instead of
+    // creating another one.
+    if (emptyConversation) {
+      navigate(`/c/${emptyConversation.id}`);
+      return;
+    }
+
     try {
       const newConv = await create.mutateAsync();
       navigate(`/c/${newConv.id}`);
     } catch (err) {
       console.error('Failed to create conversation:', err);
     }
-  }, [create, navigate]);
+  }, [create, navigate, emptyConversation]);
 
   return (
     <div className="app">
       <Sidebar
         conversations={conversations}
         onNewConversation={handleNewConversation}
+        isCreating={create.isPending}
       />
       <Routes>
         <Route path="/" element={<HomeRoute />} />
         <Route
           path="/c/:conversationId"
-          element={<ChatRouteContainer />}
+          element={
+            <ChatRouteContainer onNewConversation={handleNewConversation} />
+          }
         />
       </Routes>
     </div>
@@ -266,12 +282,18 @@ function HomeRoute() {
   );
 }
 
-function ChatRouteContainer() {
+function ChatRouteContainer({ onNewConversation }) {
   const { conversationId } = useParams();
-  return <ChatRoute key={conversationId} conversationId={conversationId} />;
+  return (
+    <ChatRoute
+      key={conversationId}
+      conversationId={conversationId}
+      onNewConversation={onNewConversation}
+    />
+  );
 }
 
-function ChatRoute({ conversationId }) {
+function ChatRoute({ conversationId, onNewConversation }) {
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -313,8 +335,10 @@ function ChatRoute({ conversationId }) {
     return (
       <ChatInterface
         conversation={null}
+        conversationId={conversationId}
         onSendMessage={() => {}}
         isLoading={false}
+        isConversationLoading={isLoading}
       />
     );
   }
@@ -322,7 +346,9 @@ function ChatRoute({ conversationId }) {
   return (
     <ChatInterface
       conversation={conversation}
+      conversationId={conversationId}
       onSendMessage={handleSend}
+      onNewConversation={onNewConversation}
       isLoading={send.isPending}
     />
   );

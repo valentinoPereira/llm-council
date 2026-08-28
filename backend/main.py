@@ -107,9 +107,9 @@ async def list_conversations():
 
 @app.post("/api/conversations", response_model=Conversation)
 async def create_conversation(request: CreateConversationRequest):
-    """Create a new conversation."""
+    """Create a new conversation, or return the existing empty one if present."""
     conversation_id = str(uuid.uuid4())
-    conversation = await storage.create_conversation(conversation_id)
+    conversation = await storage.get_or_create_empty_conversation(conversation_id)
     return conversation
 
 

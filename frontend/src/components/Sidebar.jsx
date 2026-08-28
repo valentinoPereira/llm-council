@@ -4,7 +4,11 @@ import CouncilMark from './CouncilMark';
 import ThemeToggle from './ThemeToggle';
 import './Sidebar.css';
 
-export default function Sidebar({ conversations, onNewConversation }) {
+export default function Sidebar({
+  conversations,
+  onNewConversation,
+  isCreating = false,
+}) {
   const { conversationId: activeId } = useParams();
   const listRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -52,8 +56,13 @@ export default function Sidebar({ conversations, onNewConversation }) {
             <h1 className="brand-wordmark">LLM Council</h1>
           </div>
           <div className="brand-rule" aria-hidden="true" />
-          <button className="new-conversation-btn" onClick={onNewConversation}>
-            New Conversation
+          <button
+            className="new-conversation-btn"
+            onClick={onNewConversation}
+            disabled={isCreating}
+            aria-label="Summon a Council — start a new conversation"
+          >
+            Summon a Council
           </button>
         </div>
 

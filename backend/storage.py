@@ -157,6 +157,44 @@ async def create_conversation(conversation_id: str) -> Dict[str, Any]:
     }
 
 
+# Serialize create-or-reuse of an empty conversation so the UI cannot spawn
+# multiple blank conversations by clicking "New Conversation" repeatedly.
+_empty_conversation_lock = asyncio.Lock()
+
+
+async def get_or_create_empty_conversation(conversation_id: str) -> Dict[str, Any]:
+    """
+    Return the newest empty conversation if one exists, otherwise create one.
+
+    An empty conversation is one with no messages. This keeps the "New
+    Conversation" button idempotent while a blank conversation is already
+    waiting for its first message.
+    """
+    async with _empty_conversation_lock:
+        db = await _get_db()
+        cur = await db.execute(
+            """
+            SELECT c.id, c.created_at, c.title
+            FROM conversations c
+            WHERE NOT EXISTS (
+                SELECT 1 FROM messages m WHERE m.conversation_id = c.id
+            )
+            ORDER BY c.created_at DESC
+            LIMIT 1
+            """
+        )
+        row = await cur.fetchone()
+        await cur.close()
+        if row is not None:
+            return {
+                "id": row["id"],
+                "created_at": row["created_at"],
+                "title": row["title"],
+                "messages": [],
+            }
+        return await create_conversation(conversation_id)
+
+
 async def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     Load a conversation with all its messages in insertion order.

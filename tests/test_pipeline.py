@@ -1,5 +1,6 @@
 """End-to-end test of the council pipeline with mocked OpenRouter."""
 import asyncio
+import json
 import os
 import shutil
 import sys
@@ -82,6 +83,134 @@ def make_router():
 
         # Stage 1: a sample response per model
         return completion(f"Response from {model}.")
+
+    return handler
+
+
+def make_failover_router():
+    """Mock router where the primary chairman hangs and the failover answers."""
+    import asyncio
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        data = json.loads(body)
+        model = data["model"]
+        user_msg = data["messages"][-1]["content"]
+
+        captured.setdefault(model, []).append({
+            "user_msg": user_msg,
+            "session_id": data.get("session_id"),
+        })
+
+        def completion(content: str) -> httpx.Response:
+            return httpx.Response(200, json={
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": content},
+                }],
+                "created": 0,
+                "id": "mock-completion",
+                "model": model,
+                "object": "chat.completion",
+                "system_fingerprint": "mock-fingerprint",
+            })
+
+        if "very short title" in user_msg.lower():
+            return completion("Failover Title")
+
+        if model == cfg.CHAIRMAN_MODEL:
+            # Hang past the test's 0.3s chairman timeout.
+            await asyncio.sleep(0.7)
+            return completion("this should not be reached")
+
+        if model == cfg.CHAIRMAN_FALLBACK_MODEL:
+            return completion("Vice-chair synthesis.")
+
+        if "FINAL RANKING:" in user_msg:
+            return completion(
+                "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"
+            )
+
+        if "Chairman" in user_msg:
+            # Any other chairman prompt should be answered (used by total-failure case).
+            return completion("Alternate chairman synthesis.")
+
+        return completion(f"Response from {model}.")
+
+    return handler
+
+
+def make_total_failure_router():
+    """Mock router where both primary and fallback chairman hang."""
+    import asyncio
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        data = json.loads(body)
+        model = data["model"]
+        user_msg = data["messages"][-1]["content"]
+
+        captured.setdefault(model, []).append({
+            "user_msg": user_msg,
+            "session_id": data.get("session_id"),
+        })
+
+        if model in (cfg.CHAIRMAN_MODEL, cfg.CHAIRMAN_FALLBACK_MODEL):
+            await asyncio.sleep(0.7)
+            return httpx.Response(200, json={
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "should not reach"},
+                }],
+                "created": 0,
+                "id": "mock-completion",
+                "model": model,
+                "object": "chat.completion",
+                "system_fingerprint": "mock-fingerprint",
+            })
+
+        if "very short title" in user_msg.lower():
+            return httpx.Response(200, json={
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "Failure Title"},
+                }],
+                "created": 0,
+                "id": "mock-completion",
+                "model": model,
+                "object": "chat.completion",
+                "system_fingerprint": "mock-fingerprint",
+            })
+
+        if "FINAL RANKING:" in user_msg:
+            return httpx.Response(200, json={
+                "choices": [{
+                    "index": 0,
+                    "finish_reason": "stop",
+                    "message": {"role": "assistant", "content": "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"},
+                }],
+                "created": 0,
+                "id": "mock-completion",
+                "model": model,
+                "object": "chat.completion",
+                "system_fingerprint": "mock-fingerprint",
+            })
+
+        return httpx.Response(200, json={
+            "choices": [{
+                "index": 0,
+                "finish_reason": "stop",
+                "message": {"role": "assistant", "content": f"Response from {model}."},
+            }],
+            "created": 0,
+            "id": "mock-completion",
+            "model": model,
+            "object": "chat.completion",
+            "system_fingerprint": "mock-fingerprint",
+        })
 
     return handler
 
@@ -214,6 +343,89 @@ async def main() -> int:
             assert sid2_entries, f"streaming requests missing session id {expected_sid2}"
             print(f"OK  streaming requests used session_id={expected_sid2} "
                   f"({len(sid2_entries)} requests)")
+
+            # 15) Chairman timeout -> failover to Vice-Chairman.
+            # Speed up the test by shrinking the app-level timeout and the SSE
+            # heartbeat interval so we get a progress tick before failover.
+            original_timeout = backend.council.CHAIRMAN_TIMEOUT_S
+            backend.council.CHAIRMAN_TIMEOUT_S = 0.3
+            original_heartbeat = backend.main.STAGE_HEARTBEAT_S
+            backend.main.STAGE_HEARTBEAT_S = 0.1
+            try:
+                transport2 = httpx.MockTransport(make_failover_router())
+                mock_http2 = httpx.AsyncClient(transport=transport2, timeout=10.0)
+                mock_sdk2 = OpenRouter(api_key="test-key", async_client=mock_http2)
+                failover_get_client = orouter.get_client
+                orouter.get_client = lambda: mock_sdk2
+                try:
+                    r = await http.post("/api/conversations", json={})
+                    cid3 = r.json()["id"]
+
+                    r = await http.post(
+                        f"/api/conversations/{cid3}/message/stream",
+                        json={"content": "Failover test"},
+                    )
+                    assert r.status_code == 200, r.text
+                    body = b""
+                    async for chunk in r.aiter_bytes():
+                        body += chunk
+                    text = body.decode()
+
+                    assert "stage3_complete" in text, "stage3_complete event missing"
+                    # Find the stage3_complete payload line.
+                    stage3_line = [
+                        line for line in text.splitlines()
+                        if '"stage3_complete"' in line and line.startswith("data:")
+                    ][0]
+                    stage3_data = json.loads(stage3_line.split(":", 1)[1].strip())
+                    assert stage3_data["data"]["model"] == cfg.CHAIRMAN_FALLBACK_MODEL, \
+                        f"expected failover to {cfg.CHAIRMAN_FALLBACK_MODEL}, got {stage3_data['data']['model']}"
+                    assert stage3_data["data"].get("fallback") is True, "fallback flag missing"
+                    assert "stage_progress" in text, "heartbeat missing for stage3"
+                    assert "complete" in text, "final complete event missing"
+                    print("OK  chairman timeout triggers failover to", cfg.CHAIRMAN_FALLBACK_MODEL)
+
+                    # Persisted assistant message carries the fallback result.
+                    conv = await http.get(f"/api/conversations/{cid3}")
+                    assert conv.status_code == 200, conv.text
+                    assistant = [m for m in conv.json()["messages"] if m["role"] == "assistant"][-1]
+                    assert assistant["stage3"]["model"] == cfg.CHAIRMAN_FALLBACK_MODEL
+                    assert assistant["stage3"].get("fallback") is True
+                    print("OK  fallback result persisted in storage")
+
+                    # 16) Both chairman models fail -> graceful error result.
+                    transport3 = httpx.MockTransport(make_total_failure_router())
+                    mock_http3 = httpx.AsyncClient(transport=transport3, timeout=10.0)
+                    mock_sdk3 = OpenRouter(api_key="test-key", async_client=mock_http3)
+                    orouter.get_client = lambda: mock_sdk3
+                    try:
+                        r = await http.post("/api/conversations", json={})
+                        cid4 = r.json()["id"]
+                        r = await http.post(
+                            f"/api/conversations/{cid4}/message/stream",
+                            json={"content": "Total failure test"},
+                        )
+                        assert r.status_code == 200, r.text
+                        body = b""
+                        async for chunk in r.aiter_bytes():
+                            body += chunk
+                        text = body.decode()
+                        stage3_line = [
+                            line for line in text.splitlines()
+                            if '"stage3_complete"' in line and line.startswith("data:")
+                        ][0]
+                        stage3_data = json.loads(stage3_line.split(":", 1)[1].strip())
+                        assert stage3_data["data"].get("error"), "expected error field in stage3 result"
+                        assert stage3_data["data"]["response"] is None
+                        print("OK  both chairman models failing yields graceful error result")
+                    finally:
+                        await mock_http3.aclose()
+                finally:
+                    orouter.get_client = failover_get_client
+                    await mock_http2.aclose()
+            finally:
+                backend.council.CHAIRMAN_TIMEOUT_S = original_timeout
+                backend.main.STAGE_HEARTBEAT_S = original_heartbeat
 
     finally:
         orouter.get_client = original_get_client

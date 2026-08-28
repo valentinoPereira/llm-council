@@ -1,11 +1,17 @@
 """3-stage LLM Council orchestration."""
 
+import asyncio
 import re
 import time
 from collections import defaultdict
 from typing import Any, Dict, List, Tuple
 
-from .config import CHAIRMAN_MODEL, COUNCIL_MODELS
+from .config import (
+    CHAIRMAN_FALLBACK_MODEL,
+    CHAIRMAN_MODEL,
+    CHAIRMAN_TIMEOUT_S,
+    COUNCIL_MODELS,
+)
 from .openrouter import query_model, query_models_parallel
 
 
@@ -195,27 +201,71 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model
-    response = await query_model(
-        CHAIRMAN_MODEL, messages, stage="stage3", session_id=session_id
-    )
+    # Query the chairman model with a hard timeout. The SDK timeout applies per
+    # request/response lifecycle and can be beaten by providers that drip
+    # keepalive data slowly; wait_for enforces a wall-clock ceiling.
+    start = time.perf_counter()
+    primary_model = CHAIRMAN_MODEL
+    fallback_model = CHAIRMAN_FALLBACK_MODEL
+    response = None
+    from_fallback = False
+
+    try:
+        response = await asyncio.wait_for(
+            query_model(primary_model, messages, stage="stage3", session_id=session_id),
+            timeout=CHAIRMAN_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        elapsed_s = round(time.perf_counter() - start, 1)
+        print(
+            f"[timing] stage=stage3 model={primary_model} elapsed={elapsed_s}s "
+            f"TIMEOUT after {CHAIRMAN_TIMEOUT_S}s -> failing over to {fallback_model}"
+        )
+
+    # Primary failed or timed out: promote the fallback vice-chairman.
+    if response is None:
+        from_fallback = True
+        try:
+            response = await asyncio.wait_for(
+                query_model(fallback_model, messages, stage="stage3", session_id=session_id),
+                timeout=CHAIRMAN_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            elapsed_s = round(time.perf_counter() - start, 1)
+            print(
+                f"[timing] stage=stage3 model={fallback_model} elapsed={elapsed_s}s "
+                f"TIMEOUT after {CHAIRMAN_TIMEOUT_S}s"
+            )
 
     if response is None:
-        # Fallback if chairman fails
+        total_elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
         return {
             "model": CHAIRMAN_MODEL,
-            "response": "Error: Unable to generate final synthesis."
+            "response": None,
+            "error": (
+                "The Council's Chairman was unable to deliver a synthesis. "
+                "Please try again in a moment."
+            ),
+            "duration_ms": total_elapsed_ms,
         }
 
+    delivering_model = fallback_model if from_fallback else primary_model
     elapsed_ms = response.get('duration_ms')
+    total_elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
     if elapsed_ms is not None:
-        print(f"[timing] stage=stage3 model={CHAIRMAN_MODEL} total={elapsed_ms}ms")
+        print(
+            f"[timing] stage=stage3 model={delivering_model} "
+            f"total={total_elapsed_ms}ms inference={elapsed_ms}ms"
+        )
 
-    return {
-        "model": CHAIRMAN_MODEL,
+    result = {
+        "model": delivering_model,
         "response": response.get('content', ''),
-        "duration_ms": elapsed_ms,
+        "duration_ms": total_elapsed_ms,
     }
+    if from_fallback:
+        result["fallback"] = True
+    return result
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:

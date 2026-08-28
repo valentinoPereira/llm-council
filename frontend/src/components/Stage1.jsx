@@ -10,7 +10,15 @@ export default function Stage1({ responses }) {
 
   return (
     <div className="stage stage1">
-      <h3 className="stage-title">Stage 1: Individual Responses</h3>
+      <div className="stage-header">
+        <span className="stage-numeral">I</span>
+        <div className="stage-heading">
+          <h3 className="stage-title">Deliberation</h3>
+          <span className="stage-subtitle">
+            Individual responses from each council member
+          </span>
+        </div>
+      </div>
 
       <Tabs.Root defaultValue="tab-0" orientation="horizontal">
         <Tabs.List className="tabs">
@@ -34,7 +42,7 @@ export default function Stage1({ responses }) {
               {resp.model}
               {resp.duration_ms != null && (
                 <span className="duration-detail">
-                  ⏱ {formatDuration(resp.duration_ms)}
+                  {formatDuration(resp.duration_ms)}
                 </span>
               )}
             </div>

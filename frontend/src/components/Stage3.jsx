@@ -1,26 +1,55 @@
 import Markdown from './Markdown';
+import { formatDuration } from '../utils';
 import './Stage3.css';
-
-function formatDuration(durationMs) {
-  if (durationMs == null) return null;
-  const secs = durationMs / 1000;
-  return secs >= 1 ? `${secs.toFixed(1)}s` : `${Math.round(durationMs)}ms`;
-}
 
 export default function Stage3({ finalResponse }) {
   if (!finalResponse) {
     return null;
   }
 
+  // The chairman stage completed but reported a fatal error. Stages 1 and 2
+  // are still available for inspection via the tabs.
+  if (finalResponse.error) {
+    return (
+      <div className="stage stage3">
+        <div className="stage-header">
+          <span className="stage-numeral">III</span>
+          <div className="stage-heading">
+            <h3 className="stage-title">Synthesis</h3>
+            <span className="stage-subtitle">The Chair could not deliver a verdict</span>
+          </div>
+        </div>
+        <div className="final-response">
+          <div className="chairman-label">Chairman unavailable</div>
+          <div className="final-text markdown-content stage3-error">
+            <p>{finalResponse.error}</p>
+            <p>
+              The Council's deliberations (Stages I and II) are preserved
+              above for review. You may summon a new council to try again.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="stage stage3">
-      <h3 className="stage-title">Stage 3: Final Council Answer</h3>
+      <div className="stage-header">
+        <span className="stage-numeral">III</span>
+        <div className="stage-heading">
+          <h3 className="stage-title">Synthesis</h3>
+          <span className="stage-subtitle">The Council's verdict</span>
+        </div>
+      </div>
       <div className="final-response">
         <div className="chairman-label">
-          Chairman: {finalResponse.model.split('/')[1] || finalResponse.model}
+          {finalResponse.fallback ? 'A Vice-Chairman stepped in' : 'Delivered by the Chairman'}
+          {' · '}
+          {finalResponse.model.split('/')[1] || finalResponse.model}
           {finalResponse.duration_ms != null && (
             <span className="duration-detail">
-              ⏱ {formatDuration(finalResponse.duration_ms)}
+              {formatDuration(finalResponse.duration_ms)}
             </span>
           )}
         </div>

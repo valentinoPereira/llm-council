@@ -1,25 +1,49 @@
+/*
+ * Stage 3 is the deliverable — the most elevated treatment in the app.
+ * Deliberately NOT a colored "success box": a gold top rule, a formal
+ * byline, and larger, airier body text.
+ */
 .stage3 {
-  background: var(--bg-success);
-  border-color: var(--border-success);
+  background: var(--bg-panel);
+  border-top: 2px solid var(--gold-line);
 
   .final-response {
-    background: var(--bg-app);
-    padding: 20px;
-    border-radius: 6px;
-    border: 1px solid var(--border-success);
+    padding: 4px 4px 0;
   }
 
   .chairman-label {
-    color: var(--text-success);
-    font-size: 12px;
-    font-family: monospace;
-    margin-bottom: 12px;
+    color: var(--accent-text);
+    font-size: 11px;
     font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .duration-detail {
+    margin-left: 8px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    letter-spacing: 0;
+    text-transform: none;
   }
 
   .final-text {
     color: var(--text-primary);
-    line-height: 1.7;
-    font-size: 15px;
+    line-height: 1.8;
+    font-size: 16px;
+    padding: 4px;
+  }
+
+  .stage3-error {
+    color: var(--text-muted);
+    font-size: 14px;
+
+    p + p {
+      margin-top: 12px;
+    }
   }
 }

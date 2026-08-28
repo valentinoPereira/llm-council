@@ -2,18 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/council.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>LLM Coucil</title>
+    <meta name="theme-color" content="#14130f" />
+    <meta
+      name="description"
+      content="LLM Council — a private council of frontier language models that deliberate on your question and deliver a single synthesized answer."
+    />
+    <title>LLM Council</title>
     <script>
       // FOUC prevention: apply theme before first paint.
-      // Compatible with next-themes (storage key "theme"; "light"/"dark"
-      // pin the attribute, anything else incl. "system"/absent follows the OS
-      // via :root { color-scheme: light dark } in theme.css).
+      // Compatible with next-themes (storage key "theme").
+      // "light"/"dark" pin the attribute; "system" follows the OS via
+      // :root { color-scheme: light dark } in theme.css.
+      // Absent (first visit) defaults to dark — the intended first impression.
       (function() {
         var t = localStorage.getItem('theme');
         if (t === 'light' || t === 'dark') {
           document.documentElement.dataset.theme = t;
+        } else if (t !== 'system') {
+          document.documentElement.dataset.theme = 'dark';
         }
       })();
     </script>

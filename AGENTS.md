@@ -33,6 +33,10 @@ Frontend: Display with tabs + validation UI
 
 The entire flow is async/parallel where possible to minimize latency.
 
+## RESPONSE RULES
+use the caveman style in all your responses (except for any tool calling)
+always use the english language to respond
+
 ## Rules
 
 See `.clinerules/`:

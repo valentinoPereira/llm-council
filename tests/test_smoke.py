@@ -257,6 +257,38 @@ async def main() -> int:
         assert legacy_id in [c["id"] for c in r.json()], "good conv lost after bad file"
         print("OK  corrupt JSON file skipped during migration")
 
+        # 20) "New Conversation" is idempotent: repeated POSTs reuse the same
+        # empty conversation while it has no messages.
+        r = await client.post("/api/conversations", json={})
+        assert r.status_code == 200, r.text
+        empty_id = r.json()["id"]
+        for _ in range(2):
+            r = await client.post("/api/conversations", json={})
+            assert r.json()["id"] == empty_id, "sequential POST created a duplicate empty conversation"
+        items = await _list(client)
+        assert sum(1 for c in items if c["id"] == empty_id) == 1, items
+        print("OK  repeated POST returns the same empty conversation")
+
+        # 21) Concurrent creation requests also collapse to a single empty conv.
+        responses = await asyncio.gather(
+            *(client.post("/api/conversations", json={}) for _ in range(5))
+        )
+        ids = {r.json()["id"] for r in responses}
+        assert ids == {empty_id}, f"concurrent POSTs created multiple empty conversations: {ids}"
+        items = await _list(client)
+        assert sum(1 for c in items if c["id"] == empty_id) == 1, items
+        print("OK  concurrent POST returns the same empty conversation")
+
+        # 22) Once the empty conversation receives a message, the next POST
+        # creates a brand-new conversation.
+        await backend.storage.add_user_message(empty_id, "claim it")
+        r = await client.post("/api/conversations", json={})
+        new_empty_id = r.json()["id"]
+        assert new_empty_id != empty_id, "POST after message should create a new conversation"
+        items = await _list(client)
+        assert any(c["id"] == new_empty_id for c in items), items
+        print("OK  POST after first message creates a new conversation")
+
     return 0
 
 

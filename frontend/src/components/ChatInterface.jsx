@@ -43,18 +43,24 @@ const CONVENING_PHRASES = [
 
 /**
  * Sticky ceremonial indicator shown while the council is in session.
- * Sits at the bottom of the chat viewport even when the user scrolls up,
- * and rotates through phrases that reinforce the deliberation metaphor.
+ * Sits at the bottom of the chat viewport even when the user scrolls up.
+ * Rotates through phrases while the deliberation is still arriving, then
+ * settles on a fixed nudge once Stage 1 responses are ready to read.
  */
-function ConveningIndicator() {
+function ConveningIndicator({ deliberationReady = false }) {
   const [index, setIndex] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+
+  const showStaticNudge = deliberationReady && !dismissed;
 
   useEffect(() => {
+    if (showStaticNudge) return;
+
     const interval = setInterval(() => {
       setIndex((prev) => (prev + 1) % CONVENING_PHRASES.length);
-    }, 4200);
+    }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [showStaticNudge]);
 
   const phrase = CONVENING_PHRASES[index];
 
@@ -68,18 +74,39 @@ function ConveningIndicator() {
       <div className="convening-pill">
         <CouncilMark className="convening-mark" aria-hidden="true" />
         <span className="convening-text" aria-hidden="true">
-          {[
-            <span key={`phrase-${index}`} className="convening-line">
-              {phrase.text}
-            </span>,
-            phrase.attribution ? (
-              <span key={`attr-${index}`} className="convening-attribution">
-                — {phrase.attribution}
-              </span>
-            ) : null,
-          ]}
+          {showStaticNudge ? (
+            <span className="convening-line convening-line-static">
+              The members have spoken — read their deliberation above while the
+              Council reviews it.
+            </span>
+          ) : (
+            [
+              <span key={`phrase-${index}`} className="convening-line">
+                {phrase.text}
+              </span>,
+              phrase.attribution ? (
+                <span key={`attr-${index}`} className="convening-attribution">
+                  — {phrase.attribution}
+                </span>
+              ) : null,
+            ]
+          )}
         </span>
-        <span className="convening-sr-only">The council is deliberating</span>
+        {showStaticNudge && (
+          <button
+            type="button"
+            className="convening-ok"
+            onClick={() => setDismissed(true)}
+            aria-label="Dismiss nudge and continue watching the council"
+          >
+            OK
+          </button>
+        )}
+        <span className="convening-sr-only">
+          {showStaticNudge
+            ? 'The members have spoken. Read their deliberation above while the Council reviews it.'
+            : 'The council is deliberating'}
+        </span>
       </div>
     </div>
   );
@@ -208,6 +235,12 @@ export default function ChatInterface({
     );
   }
 
+  const messages = conversation.messages ?? [];
+  const lastMsg = messages[messages.length - 1];
+  const isDeliberationReady =
+    lastMsg?.role === 'assistant' && Boolean(lastMsg?.stage1?.length);
+  const deliberationReady = isDeliberationReady && isLoading;
+
   return (
     <div className="chat-interface">
       <div className="messages-container" ref={containerRef} onScroll={onScroll}>
@@ -276,7 +309,9 @@ export default function ChatInterface({
             ))
           )}
 
-          {isLoading && conversation.messages.length > 0 && <ConveningIndicator />}
+          {isLoading && messages.length > 0 && (
+            <ConveningIndicator deliberationReady={deliberationReady} />
+          )}
 
           <div ref={messagesEndRef} />
         </div>

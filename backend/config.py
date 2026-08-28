@@ -34,3 +34,14 @@ STAGE_HEARTBEAT_S = 10.0
 
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
+
+# Simulated model mode — for UI testing without spending credits.
+# When true, query_model / query_models_parallel return synthetic responses
+# instead of calling the OpenRouter API.
+USE_SIMULATED_MODELS = (
+    os.getenv("USE_SIMULATED_MODELS", "false").lower() in ("true", "1", "yes")
+)
+
+# Base per-call delay in simulated mode (seconds). Increase this to mimic
+# slower models / long-running stages for loader and heartbeat testing.
+SIMULATED_MODEL_DELAY_S = float(os.getenv("SIMULATED_MODEL_DELAY_S", "0.5"))

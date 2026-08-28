@@ -21,7 +21,7 @@ from .council import (
     stage2_collect_rankings,
     stage3_synthesize_final,
 )
-from .config import STAGE_HEARTBEAT_S
+from .config import STAGE_HEARTBEAT_S, USE_SIMULATED_MODELS
 from .openrouter import close_client, get_client
 
 
@@ -31,8 +31,10 @@ async def lifespan(app: FastAPI):
     # any request.
     await storage.init_db()
     # Eagerly initialize the shared httpx client so the first request doesn't
-    # pay the connection-pool setup cost.
-    get_client()
+    # pay the connection-pool setup cost. Skip this in simulated mode so no
+    # OpenRouter API key is required for local UI testing.
+    if not USE_SIMULATED_MODELS:
+        get_client()
     try:
         yield
     finally:

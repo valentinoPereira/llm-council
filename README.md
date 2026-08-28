@@ -44,7 +44,18 @@ OPENROUTER_API_KEY=sk-or-v1-...
 
 Get your API key at [openrouter.ai](https://openrouter.ai/). Make sure to purchase the credits you need, or sign up for automatic top up.
 
-### 3. Configure Models (Optional)
+### 3. Simulated Model Mode (Optional — for UI testing)
+
+You can run the app without making any OpenRouter API calls by adding these to `.env`:
+
+```bash
+USE_SIMULATED_MODELS=true
+SIMULATED_MODEL_DELAY_S=0.5
+```
+
+This returns synthetic council responses, so you can test loaders, stage tabs, rankings, and the SSE stream without spending credits. The delay controls how long each fake model call sleeps to mimic real inference.
+
+### 4. Configure Models (Optional)
 
 Edit `backend/config.py` to customize the council:
 

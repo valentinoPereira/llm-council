@@ -12,7 +12,11 @@ from typing import Any, Dict, List, Optional
 from openrouter import OpenRouter
 from openrouter.utils.retries import BackoffStrategy, RetryConfig
 
-from .config import OPENROUTER_API_KEY
+from .config import (
+    OPENROUTER_API_KEY,
+    SIMULATED_MODEL_DELAY_S,
+    USE_SIMULATED_MODELS,
+)
 
 # Module-level shared SDK client. Initialized lazily on first use and closed
 # by the FastAPI lifespan handler. The SDK's underlying httpx.AsyncClient
@@ -75,6 +79,61 @@ def _serialize_reasoning_details(details: Any) -> Optional[List[Dict[str, Any]]]
     ]
 
 
+def _build_simulated_content(model: str, messages: List[Dict[str, str]], stage: str = "") -> str:
+    """Return stage-appropriate synthetic content for UI testing."""
+    user_query = messages[-1].get("content", "") if messages else ""
+
+    if stage == "title":
+        words = user_query.split()[:4] or ["Simulated", "Conversation"]
+        return " ".join(words)
+
+    if stage == "stage3":
+        return (
+            "This is a simulated chairman synthesis.\n\n"
+            "The council reviewed the question and produced the following "
+            "consolidated answer for testing purposes:\n\n"
+            f"**Question:** {user_query}\n\n"
+            "**Answer:** Based on the simulated discussion, the best response is "
+            "the one that addresses the user's question directly and clearly."
+        )
+
+    if stage == "stage2":
+        return """Simulated Stage 2 evaluation.
+
+Response A: Clear and direct. Good structure.
+Response B: Solid reasoning but slightly verbose.
+Response C: Informative but misses some nuance.
+Response D: Acceptable but the weakest of the group.
+
+FINAL RANKING:
+1. Response A
+2. Response B
+3. Response C
+4. Response D"""
+
+    # Default / stage1
+    return (
+        f"This is a simulated response from **{model}**.\n\n"
+        "Because `USE_SIMULATED_MODELS=true` is enabled, no actual OpenRouter "
+        "API call was made. Use this mode to test the UI (loaders, tabs, rankings) "
+        "without spending credits.\n\n"
+        f"Received question: {user_query!r}"
+    )
+
+
+async def _simulate_query(model: str, messages: List[Dict[str, str]], stage: str = "") -> Dict[str, Any]:
+    """Simulate an OpenRouter call for cheap UI/local testing."""
+    start = time.perf_counter()
+    await asyncio.sleep(SIMULATED_MODEL_DELAY_S)
+    content = _build_simulated_content(model, messages, stage)
+    elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+    return {
+        'content': content,
+        'reasoning_details': None,
+        'duration_ms': elapsed_ms,
+    }
+
+
 async def query_model(
     model: str,
     messages: List[Dict[str, str]],
@@ -102,6 +161,12 @@ async def query_model(
     start = time.perf_counter()
     stage_tag = f" stage={stage}" if stage else ""
     print(f"[timing]{stage_tag} model={model} start")
+
+    if USE_SIMULATED_MODELS:
+        result = await _simulate_query(model, messages, stage=stage)
+        elapsed_ms = result['duration_ms']
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms SIMULATED")
+        return result
 
     try:
         result = await get_client().chat.send_async(

@@ -93,6 +93,11 @@
     text-overflow: ellipsis;
   }
 
+  .step-elapsed {
+    color: var(--accent-text);
+    font-weight: 500;
+  }
+
   .step-connector {
     position: absolute;
     top: 15px;

@@ -100,6 +100,9 @@ async def query_model(
         'reasoning_details', or None if failed
     """
     start = time.perf_counter()
+    stage_tag = f" stage={stage}" if stage else ""
+    print(f"[timing]{stage_tag} model={model} start")
+
     try:
         result = await get_client().chat.send_async(
             model=model,
@@ -110,7 +113,6 @@ async def query_model(
         message = result.choices[0].message
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
 
-        stage_tag = f" stage={stage}" if stage else ""
         print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms ok")
 
         return {
@@ -119,9 +121,13 @@ async def query_model(
             'duration_ms': elapsed_ms,
         }
 
+    except asyncio.CancelledError:
+        elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
+        print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms CANCELLED")
+        raise
+
     except Exception as e:
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
-        stage_tag = f" stage={stage}" if stage else ""
         print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms FAILED: {e}")
         return None
 

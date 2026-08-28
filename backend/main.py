@@ -2,9 +2,10 @@
 
 import asyncio
 import json
+import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Dict, List
+from typing import Any, Coroutine, Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +21,7 @@ from .council import (
     stage2_collect_rankings,
     stage3_synthesize_final,
 )
+from .config import STAGE_HEARTBEAT_S
 from .openrouter import close_client, get_client
 
 
@@ -66,6 +68,55 @@ def openrouter_session_id(conversation_id: str) -> str:
     requests in its console/dashboard.
     """
     return f"llm-council-{conversation_id}"[:OPENROUTER_SESSION_ID_MAX]
+
+
+async def _await_with_progress(
+    label: str,
+    coro: Coroutine,
+    heartbeat_s: float | None = None,
+):
+    """Run a stage coroutine and emit heartbeat ticks until it finishes.
+
+    Yields ``stage_progress`` events while the coroutine runs, then a single
+    ``stage_done`` event carrying the result. The final event is consumed by
+    the caller; only progress events are forwarded to the client.
+
+    The task is shielded so that a client disconnect doesn't propagate
+    CancelledError into the stage logic unless the stage itself yields or
+    decides to stop.
+    """
+    interval = heartbeat_s if heartbeat_s is not None else STAGE_HEARTBEAT_S
+    start = time.perf_counter()
+    task = asyncio.ensure_future(coro)
+    try:
+        while True:
+            done, pending = await asyncio.wait(
+                {task}, timeout=interval, return_when=asyncio.FIRST_COMPLETED
+            )
+            if task in done:
+                yield {
+                    "data": json.dumps(
+                        {
+                            "type": "stage_done",
+                            "stage": label,
+                            "result": task.result(),
+                        }
+                    )
+                }
+                return
+            elapsed = time.perf_counter() - start
+            yield {
+                "data": json.dumps(
+                    {"type": "stage_progress", "stage": label, "elapsed_s": round(elapsed, 1)}
+                )
+            }
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
@@ -232,24 +283,50 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Stage 1: Collect responses
             yield {"data": json.dumps({"type": "stage1_start"})}
-            stage1_results = await stage1_collect_responses(
-                request.content, session_id=session_id
-            )
+            stage1_results = None
+            async for item in _await_with_progress(
+                "stage1",
+                stage1_collect_responses(request.content, session_id=session_id),
+            ):
+                _payload = json.loads(item["data"])
+                if _payload.get("type") == "stage_done":
+                    stage1_results = _payload["result"]
+                else:
+                    yield item
             yield {"data": json.dumps({"type": "stage1_complete", "data": stage1_results})}
 
             # Stage 2: Collect rankings
             yield {"data": json.dumps({"type": "stage2_start"})}
-            stage2_results, label_to_model = await stage2_collect_rankings(
-                request.content, stage1_results, session_id=session_id
-            )
+            stage2_raw = None
+            async for item in _await_with_progress(
+                "stage2",
+                stage2_collect_rankings(
+                    request.content, stage1_results, session_id=session_id
+                ),
+            ):
+                _payload = json.loads(item["data"])
+                if _payload.get("type") == "stage_done":
+                    stage2_raw = _payload["result"]
+                else:
+                    yield item
+            stage2_results, label_to_model = stage2_raw
             aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
             yield {"data": json.dumps({"type": "stage2_complete", "data": stage2_results, "metadata": {"label_to_model": label_to_model, "aggregate_rankings": aggregate_rankings}})}
 
-            # Stage 3: Synthesize final answer
+            # Stage 3: Synthesize final answer (primary chairman + failover)
             yield {"data": json.dumps({"type": "stage3_start"})}
-            stage3_result = await stage3_synthesize_final(
-                request.content, stage1_results, stage2_results, session_id=session_id
-            )
+            stage3_result = None
+            async for item in _await_with_progress(
+                "stage3",
+                stage3_synthesize_final(
+                    request.content, stage1_results, stage2_results, session_id=session_id
+                ),
+            ):
+                _payload = json.loads(item["data"])
+                if _payload.get("type") == "stage_done":
+                    stage3_result = _payload["result"]
+                else:
+                    yield item
             yield {"data": json.dumps({"type": "stage3_complete", "data": stage3_result})}
 
             # Wait for title generation if it was started

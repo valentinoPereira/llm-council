@@ -84,12 +84,17 @@ function useSendMessage() {
       }));
 
       let streamError = null;
+      let stageCompleted = false;
 
       try {
         await api.sendMessageStream(targetId, content, (eventType, event) => {
           if (eventType === 'error') {
             streamError = new Error(event.message ?? 'Stream error');
             return;
+          }
+
+          if (eventType === 'stage3_complete') {
+            stageCompleted = true;
           }
 
           if (eventType === 'title_complete') {
@@ -137,9 +142,25 @@ function useSendMessage() {
               case 'stage3_start':
                 nextLast.loading = { ...nextLast.loading, stage3: true };
                 break;
+              case 'stage3_progress':
+                nextLast.loading = {
+                  ...nextLast.loading,
+                  stage3: { elapsed_s: event.elapsed_s },
+                };
+                break;
               case 'stage3_complete':
                 nextLast.stage3 = event.data;
                 nextLast.loading = { ...nextLast.loading, stage3: false };
+                if (event.data?.error) {
+                  nextLast.stageError = event.data.error;
+                }
+                break;
+              case 'stage_progress':
+                // Generic per-stage heartbeat (stage3 gets richer handling above).
+                nextLast.loading = {
+                  ...nextLast.loading,
+                  [event.stage]: { elapsed_s: event.elapsed_s },
+                };
                 break;
               default:
                 break;
@@ -154,8 +175,10 @@ function useSendMessage() {
         streamError = streamError ?? error;
       }
 
-      if (streamError) {
-        // Roll back the optimistic pair so the UI doesn't lie.
+      if (streamError && !stageCompleted) {
+        // Roll back only when the stream broke BEFORE stage3 completed.
+        // If stage3 reported an error object, the assistant message stays so
+        // its partial data can be displayed.
         queryClient.setQueryData(['conversation', targetId], (old) => {
           if (!old) return old;
           const messages = old.messages;

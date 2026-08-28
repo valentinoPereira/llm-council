@@ -33,6 +33,10 @@ Frontend: Display with tabs + validation UI
 
 The entire flow is async/parallel where possible to minimize latency.
 
+## RESPONSE RULES
+use the caveman style in all your responses (except for any tool calling)
+always use the english language to respond
+
 ## Rules
 
 See `.clinerules/`:
@@ -42,4 +46,3 @@ See `.clinerules/`:
 - `frontend.md` — frontend code (routing, markdown wrapper, de-anonymization)
 - `styling.md` — CSS/theming (light-dark tokens, color-mix, markdown padding)
 - `openrouter-sessions.md` — backend code and tests (session id rules)
-- `commands.md` — always-on (use git bash for commands)

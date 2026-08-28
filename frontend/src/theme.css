@@ -1,55 +1,70 @@
 /*
  * Design tokens for LLM Council.
- * Light values = the original hex colors; dark values tuned for readability.
+ *
+ * Direction: "private banking, not SaaS" — restrained, editorial, muted.
+ * Light = warm ivory paper; dark = deep ink/charcoal. Single champagne-gold
+ * accent used sparingly (hairlines, active states, focus).
+ *
  * Uses CSS Color 4's light-dark() which resolves based on the computed
  * color-scheme of the :root element — toggled by the ThemeToggle component.
+ * Derived states use color-mix(in oklch, ...) per styling rules.
+ *
+ * See frontend/DESIGN.md for the full rationale and iteration notes.
  */
 :root {
   color-scheme: light dark;
 
-  /* ── Surfaces ─────────────────────────────────────────────────────────── */
-  --bg-body:              light-dark(#f5f5f5, #121212);
-  --bg-app:               light-dark(#ffffff, #1e1f22);
-  --bg-sidebar:           light-dark(#f8f8f8, #18191b);
-  --bg-subtle:            light-dark(#fafafa, #27282d);
-  --bg-hover:             light-dark(#f0f0f0, #2d2e33);
-  --bg-panel:             light-dark(#ffffff, #25262a);
+  /* ── Typography ─────────────────────────────────────────────────────────── */
+  --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  --font-body: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Consolas, monospace;
 
-  /* ── Themed panels ────────────────────────────────────────────────────── */
-  --bg-user-bubble:       light-dark(#f0f7ff, #172030);
-  --border-user-bubble:   light-dark(#d0e7ff, #264065);
-  --bg-selected:          light-dark(#e8f0fe, #1e2f45);
-  --border-selected:      light-dark(#4a90e2, #4a90e2);
-  --bg-success:           light-dark(#f0fff0, #1a2d1a);
-  --border-success:       light-dark(#c8e6c8, #2d5a3a);
-  --text-success:         light-dark(#2d8a2d, #6cc06c);
+  /* ── Surfaces ───────────────────────────────────────────────────────────── */
+  --bg-body:              light-dark(#efece3, #0d0c0a);
+  --bg-app:               light-dark(#faf9f5, #14130f);
+  --bg-sidebar:           light-dark(#f4f2eb, #100f0c);
+  --bg-subtle:            light-dark(#f4f2ea, #1a1915);
+  --bg-panel:             light-dark(#ffffff, #1b1a15);
+  --bg-hover:             light-dark(color-mix(in oklch, #8a6d3b 5%, #faf9f5),
+                                     color-mix(in oklch, #c9a86a 6%, #14130f));
 
-  /* ── Borders ──────────────────────────────────────────────────────────── */
-  --border-default:       light-dark(#e0e0e0, #33353a);
-  --border-strong:        light-dark(#d0d0d0, #3f4147);
+  /* ── Accent (champagne gold) ────────────────────────────────────────────── */
+  /* --accent is text-safe (≥ 4.5:1 on --bg-app); --gold-line is decorative. */
+  --accent:               light-dark(#7a5f30, #c9a86a);
+  --accent-text:          light-dark(#6d5427, #d4b478);
+  --gold-line:            light-dark(#b08d57, #d4b478);
+  --accent-hover:         color-mix(in oklch, var(--accent), light-dark(black, white) 14%);
+  --accent-soft:          light-dark(color-mix(in oklch, #8a6d3b 8%, #faf9f5),
+                                     color-mix(in oklch, #c9a86a 9%, #14130f));
+  --focus-ring:           color-mix(in oklch, var(--accent) 30%, transparent);
 
-  /* ── Text ─────────────────────────────────────────────────────────────── */
-  --text-primary:         light-dark(#333333, #e6e6e6);
-  --text-secondary:       light-dark(#666666, #a0a0a8);
-  --text-muted:           light-dark(#999999, #75757e);
+  /* ── Themed panels ──────────────────────────────────────────────────────── */
+  --bg-user-bubble:       light-dark(#f3f0e6, #1c1b15);
+  --border-user-bubble:   light-dark(#e4dfd0, #302e24);
+  --bg-selected:          light-dark(color-mix(in oklch, #8a6d3b 7%, #f4f2eb),
+                                     color-mix(in oklch, #c9a86a 8%, #100f0c));
 
-  /* ── Primary blue ─────────────────────────────────────────────────────── */
-  --primary:              light-dark(#4a90e2, #5b9fe8);
-  --primary-text:         light-dark(#2a7ae2, #79b8ff);
-  --primary-hover:        light-dark(#357abd, #79b0f0);
-  --primary-soft:         light-dark(color-mix(in oklch, #4a90e2 10%, #ffffff),
-                                    color-mix(in oklch, #4a90e2 10%, #1e1f22));
+  /* ── Borders ────────────────────────────────────────────────────────────── */
+  --border-default:       light-dark(#e3dfd2, #2b2a23);
+  --border-strong:        light-dark(#cec9b8, #3d3b31);
 
-  /* ── Buttons ──────────────────────────────────────────────────────────── */
-  --btn-hover:            color-mix(in oklch, var(--primary), black 15%);
-  --btn-disabled-bg:      light-dark(#cccccc, #3a3a3a);
-  --btn-disabled-border:  light-dark(#cccccc, #444444);
+  /* ── Text ───────────────────────────────────────────────────────────────── */
+  --text-primary:         light-dark(#1c1a16, #ece9e0);
+  --text-secondary:       light-dark(#5a554a, #a8a296);
+  --text-muted:           light-dark(#8b8577, #6f6a5d);
+  --text-on-accent:       light-dark(#faf9f5, #14130f);
+
+  /* ── Elevation & motion ─────────────────────────────────────────────────── */
+  --shadow-panel:         light-dark(0 1px 3px rgba(28, 26, 22, 0.06),
+                                     0 1px 3px rgba(0, 0, 0, 0.5));
+  --transition-fast:      150ms ease;
+  --transition-med:       220ms ease;
 }
 
 /* Manual override via ThemeToggle */
-:root[data-theme="light"] {
+:root[data-theme='light'] {
   color-scheme: light;
 }
-:root[data-theme="dark"] {
+:root[data-theme='dark'] {
   color-scheme: dark;
 }

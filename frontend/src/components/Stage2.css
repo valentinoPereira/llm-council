@@ -6,6 +6,7 @@
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 600;
+    letter-spacing: 0.02em;
 
     &:first-of-type { margin-top: 0; }
   }
@@ -14,121 +15,130 @@
     margin: 0 0 12px 0;
     color: var(--text-secondary);
     font-size: 13px;
-    line-height: 1.5;
+    line-height: 1.6;
   }
 
+  /* ── Council Consensus: a quiet leaderboard ──────────────────────────────── */
+
   .aggregate-rankings {
-    background: var(--bg-user-bubble);
-    padding: 16px;
+    margin-top: 24px;
+    padding: 18px 20px;
+    background: var(--accent-soft);
     border-radius: 8px;
-    margin-bottom: 20px;
-    border: 2px solid var(--border-user-bubble);
+    border: 1px solid color-mix(in oklch, var(--gold-line) 35%, transparent);
 
     h4 {
-      margin: 0 0 12px 0;
-      color: var(--primary-text);
-      font-size: 15px;
+      margin: 0 0 4px 0;
+      color: var(--accent-text);
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 560;
     }
+
+    .stage-description { margin-bottom: 14px; }
   }
 
   .aggregate-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
   }
 
   .aggregate-item {
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px;
-    background: var(--bg-app);
-    border-radius: 6px;
-    border: 1px solid var(--border-user-bubble);
+    align-items: baseline;
+    gap: 14px;
+    padding: 9px 2px;
+    border-bottom: 1px solid color-mix(in oklch, var(--border-default) 70%, transparent);
+
+    &:last-child { border-bottom: none; }
   }
 
   .rank-position {
-    color: var(--primary-text);
-    font-weight: 700;
-    font-size: 16px;
-    min-width: 35px;
+    color: var(--accent-text);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 17px;
+    min-width: 30px;
   }
 
   .rank-model {
     flex: 1;
     color: var(--text-primary);
-    font-family: monospace;
-    font-size: 14px;
+    font-family: var(--font-mono);
+    font-size: 13.5px;
     font-weight: 500;
   }
 
   .rank-score {
     color: var(--text-secondary);
-    font-size: 13px;
-    font-family: monospace;
+    font-size: 12.5px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
   }
+
+  /* ── Tabs & evaluation content ───────────────────────────────────────────── */
 
   .tabs {
     display: flex;
-    gap: 8px;
-    margin-bottom: 16px;
+    gap: 4px;
+    margin-bottom: 4px;
     flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-default);
   }
 
   .tab {
-    padding: 8px 16px;
-    background: var(--bg-app);
-    border: 1px solid var(--border-strong);
-    border-radius: 6px 6px 0 0;
-    color: var(--text-secondary);
+    padding: 8px 12px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--text-muted);
     cursor: pointer;
-    font-size: 14px;
-    transition: all 0.2s;
+    font-size: 13px;
+    font-family: var(--font-body);
+    font-weight: 500;
+    transition:
+      color var(--transition-fast),
+      border-bottom-color var(--transition-fast);
 
-    &:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-      border-color: var(--primary);
-    }
+    &:hover { color: var(--text-primary); }
 
     &[data-state="active"] {
-      background: var(--bg-app);
-      color: var(--primary);
-      border-color: var(--primary);
-      border-bottom-color: var(--bg-app);
+      color: var(--accent-text);
+      border-bottom-color: var(--gold-line);
       font-weight: 600;
     }
   }
 
   .tab-content {
-    background: var(--bg-app);
-    padding: 16px;
-    border-radius: 6px;
-    border: 1px solid var(--border-default);
-    margin-bottom: 20px;
+    padding: 16px 4px 4px;
+    margin-bottom: 16px;
   }
 
   .ranking-model {
     color: var(--text-muted);
     font-size: 12px;
-    font-family: monospace;
+    font-family: var(--font-mono);
     margin-bottom: 12px;
   }
 
   .ranking-content {
     color: var(--text-primary);
-    line-height: 1.6;
+    line-height: 1.65;
     font-size: 14px;
   }
 
   .parsed-ranking {
     margin-top: 16px;
-    padding-top: 16px;
-    border-top: 2px solid var(--border-default);
+    padding-top: 14px;
+    border-top: 1px solid var(--border-default);
 
     strong {
-      color: var(--primary-text);
-      font-size: 13px;
+      color: var(--accent-text);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
     }
 
     ol {
@@ -139,7 +149,7 @@
 
     li {
       margin: 4px 0;
-      font-family: monospace;
+      font-family: var(--font-mono);
       font-size: 13px;
     }
   }
@@ -147,5 +157,27 @@
   .rank-count {
     color: var(--text-muted);
     font-size: 12px;
+  }
+
+  .duration-badge {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+
+  .tab[data-state="active"] .duration-badge {
+    color: var(--accent-text);
+  }
+
+  .duration-detail {
+    margin-left: 8px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
   }
 }

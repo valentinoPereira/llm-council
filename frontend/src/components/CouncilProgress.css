@@ -1,0 +1,128 @@
+.council-progress {
+  margin: 20px 0;
+  padding: 20px 24px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+
+  .council-progress-kicker {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent-text);
+    margin-bottom: 16px;
+  }
+
+  .council-progress-steps {
+    display: flex;
+    align-items: flex-start;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .progress-step {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+
+    &:last-child { flex: 0 0 auto; }
+  }
+
+  .step-marker {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+    border: 1px solid var(--border-strong);
+    border-radius: 50%;
+    font-family: var(--font-display);
+    font-size: 13px;
+    color: var(--text-muted);
+    background: var(--bg-app);
+    transition:
+      border-color var(--transition-med),
+      color var(--transition-med),
+      background var(--transition-med);
+
+    svg { width: 14px; height: 14px; }
+  }
+
+  .progress-step.active .step-marker {
+    border-color: var(--gold-line);
+    color: var(--accent-text);
+    animation: step-pulse 1.8s ease-in-out infinite;
+  }
+
+  .progress-step.done .step-marker {
+    border-color: var(--gold-line);
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+
+  .step-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .step-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    transition: color var(--transition-med);
+    white-space: nowrap;
+  }
+
+  .progress-step.active .step-label,
+  .progress-step.done .step-label {
+    color: var(--text-primary);
+  }
+
+  .step-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .step-connector {
+    position: absolute;
+    top: 15px;
+    left: calc(100% + 6px);
+    width: 18px;
+    height: 1px;
+    background: var(--border-strong);
+
+    &.done { background: var(--gold-line); }
+  }
+}
+
+@keyframes step-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--accent) 35%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+@media (max-width: 640px) {
+  .council-progress {
+    padding: 16px;
+
+    .council-progress-steps {
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .step-connector { display: none; }
+  }
+}

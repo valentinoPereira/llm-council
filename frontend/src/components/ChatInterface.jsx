@@ -1,9 +1,29 @@
 import { useState, useEffect, useRef } from 'react';
+import CouncilMark from './CouncilMark';
+import CouncilProgress from './CouncilProgress';
 import Markdown from './Markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import './ChatInterface.css';
+
+/**
+ * First-impression hero: the wordmark, a gold rule, one quiet line of copy.
+ * Shown on the home route and in any conversation with no messages yet.
+ */
+function EmptyStateHero() {
+  return (
+    <div className="empty-state">
+      <CouncilMark className="empty-state-mark" />
+      <h2 className="empty-state-wordmark">LLM Council</h2>
+      <div className="empty-state-rule" aria-hidden="true" />
+      <p className="empty-state-copy">
+        Pose a question. A council of frontier models deliberates, reviews its
+        own answers, and delivers a single synthesized verdict.
+      </p>
+    </div>
+  );
+}
 
 export default function ChatInterface({
   conversation,
@@ -12,6 +32,7 @@ export default function ChatInterface({
 }) {
   const [input, setInput] = useState('');
   const messagesEndRef = useRef(null);
+  const inputRef = useRef(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -20,6 +41,16 @@ export default function ChatInterface({
   useEffect(() => {
     scrollToBottom();
   }, [conversation]);
+
+  // Return focus to the composer when a run finishes (loading → idle).
+  // Skipped on mount and on touch-sized screens to avoid popping the keyboard.
+  const wasLoadingRef = useRef(false);
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading && window.innerWidth > 900) {
+      inputRef.current?.focus();
+    }
+    wasLoadingRef.current = isLoading;
+  }, [isLoading]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -40,9 +71,8 @@ export default function ChatInterface({
   if (!conversation) {
     return (
       <div className="chat-interface">
-        <div className="empty-state">
-          <h2>Welcome to LLM Council</h2>
-          <p>Create a new conversation to get started</p>
+        <div className="messages-container">
+          <EmptyStateHero />
         </div>
       </div>
     );
@@ -51,95 +81,85 @@ export default function ChatInterface({
   return (
     <div className="chat-interface">
       <div className="messages-container">
-        {conversation.messages.length === 0 ? (
-          <div className="empty-state">
-            <h2>Start a conversation</h2>
-            <p>Ask a question to consult the LLM Council</p>
-          </div>
-        ) : (
-          conversation.messages.map((msg, index) => (
-            <div key={index} className="message-group">
-              {msg.role === 'user' ? (
-                <div className="user-message">
-                  <div className="message-label">You</div>
-                  <div className="message-content">
-                    <div className="markdown-content">
-                      <Markdown>{msg.content}</Markdown>
+        <div className="reading-column">
+          {conversation.messages.length === 0 ? (
+            <EmptyStateHero />
+          ) : (
+            conversation.messages.map((msg, index) => (
+              <div key={index} className="message-group">
+                {msg.role === 'user' ? (
+                  <div className="user-message">
+                    <div className="message-label">You</div>
+                    <div className="message-content">
+                      <div className="markdown-content">
+                        <Markdown>{msg.content}</Markdown>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <div className="assistant-message">
-                  <div className="message-label">LLM Council</div>
-
-                  {/* Stage 1 */}
-                  {msg.loading?.stage1 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 1: Collecting individual responses...</span>
+                ) : (
+                  <div className="assistant-message">
+                    <div className="message-label message-label-council">
+                      <CouncilMark className="message-label-mark" />
+                      The Council
                     </div>
-                  )}
-                  {msg.stage1 && <Stage1 responses={msg.stage1} />}
 
-                  {/* Stage 2 */}
-                  {msg.loading?.stage2 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 2: Peer rankings...</span>
-                    </div>
-                  )}
-                  {msg.stage2 && (
-                    <Stage2
-                      rankings={msg.stage2}
-                      labelToModel={msg.metadata?.label_to_model}
-                      aggregateRankings={msg.metadata?.aggregate_rankings}
-                    />
-                  )}
+                    {/* Ceremonial progress while any stage is in flight */}
+                    <CouncilProgress message={msg} />
 
-                  {/* Stage 3 */}
-                  {msg.loading?.stage3 && (
-                    <div className="stage-loading">
-                      <div className="spinner"></div>
-                      <span>Running Stage 3: Final synthesis...</span>
-                    </div>
-                  )}
-                  {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
-                </div>
-              )}
+                    {msg.stage1 && <Stage1 responses={msg.stage1} />}
+
+                    {msg.stage2 && (
+                      <Stage2
+                        rankings={msg.stage2}
+                        labelToModel={msg.metadata?.label_to_model}
+                        aggregateRankings={msg.metadata?.aggregate_rankings}
+                      />
+                    )}
+
+                    {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          {isLoading && conversation.messages.length > 0 && (
+            <div className="loading-indicator" role="status">
+              <span className="loading-ellipsis">Convening the council</span>
             </div>
-          ))
-        )}
+          )}
 
-        {isLoading && (
-          <div className="loading-indicator">
-            <div className="spinner"></div>
-            <span>Consulting the council...</span>
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {conversation.messages.length === 0 && (
-        <form className="input-form" onSubmit={handleSubmit}>
+      <div className="composer-area">
+        <form className="composer" onSubmit={handleSubmit}>
           <textarea
+            ref={inputRef}
             className="message-input"
-            placeholder="Ask your question... (Shift+Enter for new line, Enter to send)"
+            placeholder="Pose your question to the Council…"
+            aria-label="Message the Council"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={isLoading}
             rows={3}
           />
-          <button
-            type="submit"
-            className="send-button"
-            disabled={!input.trim() || isLoading}
-          >
-            Send
-          </button>
+          <div className="composer-footer">
+            <span className="composer-hint">
+              Enter to send · Shift + Enter for a new line
+            </span>
+            <button
+              type="submit"
+              className="send-button"
+              disabled={!input.trim() || isLoading}
+            >
+              Consult the Council
+            </button>
+          </div>
         </form>
-      )}
+      </div>
     </div>
   );
 }

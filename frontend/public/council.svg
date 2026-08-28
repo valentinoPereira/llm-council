@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#14130f"/>
+  <!-- Council table: gold ring with seated members -->
+  <circle cx="32" cy="32" r="13" fill="none" stroke="#c9a86a" stroke-width="1.6"/>
+  <circle cx="32" cy="19" r="2.6" fill="#c9a86a"/>
+  <circle cx="43.3" cy="25.5" r="2.6" fill="#c9a86a"/>
+  <circle cx="43.3" cy="38.5" r="2.6" fill="#c9a86a"/>
+  <circle cx="32" cy="45" r="2.6" fill="#c9a86a"/>
+  <circle cx="20.7" cy="38.5" r="2.6" fill="#c9a86a"/>
+  <circle cx="20.7" cy="25.5" r="2.6" fill="#c9a86a"/>
+</svg>

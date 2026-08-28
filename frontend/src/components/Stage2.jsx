@@ -22,12 +22,22 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
   return (
     <div className="stage stage2">
-      <h3 className="stage-title">Stage 2: Peer Rankings</h3>
+      <div className="stage-header">
+        <span className="stage-numeral">II</span>
+        <div className="stage-heading">
+          <h3 className="stage-title">Peer Review</h3>
+          <span className="stage-subtitle">
+            Anonymized evaluation &amp; ranking
+          </span>
+        </div>
+      </div>
 
       <h4>Raw Evaluations</h4>
       <p className="stage-description">
-        Each model evaluated all responses (anonymized as Response A, B, C, etc.) and provided rankings.
-        Below, model names are shown in <strong>bold</strong> for readability, but the original evaluation used anonymous labels.
+        Each member evaluated every response under anonymous labels
+        (Response A, B, C, …) and returned a ranking. Model names are shown in{' '}
+        <strong>bold</strong> below for readability; the evaluations themselves
+        were conducted blind.
       </p>
 
       <Tabs.Root defaultValue="tab-0" orientation="horizontal">
@@ -52,7 +62,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               {rank.model}
               {rank.duration_ms != null && (
                 <span className="duration-detail">
-                  ⏱ {formatDuration(rank.duration_ms)}
+                  {formatDuration(rank.duration_ms)}
                 </span>
               )}
             </div>
@@ -83,9 +93,10 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
       {aggregateRankings && aggregateRankings.length > 0 && (
         <div className="aggregate-rankings">
-          <h4>Aggregate Rankings (Street Cred)</h4>
+          <h4>Council Consensus</h4>
           <p className="stage-description">
-            Combined results across all peer evaluations (lower score is better):
+            Standing across all peer evaluations — lower average position is
+            stronger:
           </p>
           <div className="aggregate-list">
             {aggregateRankings.map((agg, index) => (

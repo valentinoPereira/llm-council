@@ -16,6 +16,10 @@ import {
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import { api } from './api';
+import {
+  ensureNotificationPermission,
+  notifyChairmanDone,
+} from './notifications';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -95,6 +99,16 @@ function useSendMessage() {
 
           if (eventType === 'stage3_complete') {
             stageCompleted = true;
+
+            const currentConversation = queryClient.getQueryData([
+              'conversation',
+              targetId,
+            ]);
+            notifyChairmanDone({
+              conversationId: targetId,
+              conversationTitle: currentConversation?.title,
+              hasError: Boolean(event.data?.error),
+            });
           }
 
           if (eventType === 'title_complete') {
@@ -280,6 +294,7 @@ function HomeRoute() {
 
   const handleSend = useCallback(
     async (content) => {
+      ensureNotificationPermission().catch(() => {});
       setIsCreating(true);
       try {
         const newConv = await create.mutateAsync();
@@ -341,6 +356,7 @@ function ChatRoute({ conversationId, onNewConversation }) {
       !initialSentRef.current &&
       conversation?.messages?.length === 0
     ) {
+      ensureNotificationPermission().catch(() => {});
       initialSentRef.current = true;
       send.mutate({ conversationId, content: initialMessage });
       navigate(location.pathname, { replace: true, state: {} });
@@ -349,6 +365,7 @@ function ChatRoute({ conversationId, onNewConversation }) {
 
   const handleSend = useCallback(
     (content) => {
+      ensureNotificationPermission().catch(() => {});
       send.mutate({ conversationId, content });
     },
     [send, conversationId]

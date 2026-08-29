@@ -11,7 +11,12 @@ export default function Stage3({ finalResponse }) {
   // are still available for inspection via the tabs.
   if (finalResponse.error) {
     return (
-      <div className="stage stage3">
+      <div
+        id="council-verdict"
+        className="stage stage3"
+        tabIndex={-1}
+        aria-label="Council verdict"
+      >
         <div className="stage-header">
           <span className="stage-numeral">III</span>
           <div className="stage-heading">
@@ -34,7 +39,12 @@ export default function Stage3({ finalResponse }) {
   }
 
   return (
-    <div className="stage stage3">
+    <div
+      id="council-verdict"
+      className="stage stage3"
+      tabIndex={-1}
+      aria-label="Council verdict"
+    >
       <div className="stage-header">
         <span className="stage-numeral">III</span>
         <div className="stage-heading">

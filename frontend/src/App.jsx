@@ -19,6 +19,7 @@ import { api } from './api';
 import {
   ensureNotificationPermission,
   notifyChairmanDone,
+  setNotificationNavigationCallback,
 } from './notifications';
 import './App.css';
 
@@ -245,6 +246,15 @@ function App() {
   const { data: conversations = [] } = useConversations();
   const navigate = useNavigate();
   const create = useCreateConversation();
+
+  // Register a React Router navigator for notification clicks so that focusing
+  // the tab from a notification does not force a full page reload.
+  useEffect(() => {
+    setNotificationNavigationCallback((conversationId) => {
+      navigate(`/c/${conversationId}#council-verdict`);
+    });
+    return () => setNotificationNavigationCallback(null);
+  }, [navigate]);
 
   // The newest empty conversation is the canonical "new conversation".
   const emptyConversation = conversations.find(

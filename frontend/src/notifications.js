@@ -15,6 +15,17 @@ function isUserFocused() {
   return document.visibilityState === 'visible' && document.hasFocus();
 }
 
+let navigateCallback = null;
+
+/**
+ * Allows the React Router layer to register a navigation function so that
+ * clicking a notification uses an in-app route change instead of a full page
+ * reload. Pass `null` to unregister (e.g. on app unmount).
+ */
+export function setNotificationNavigationCallback(cb) {
+  navigateCallback = cb ?? null;
+}
+
 /**
  * Request notification permission from the browser.
  * Safe to call repeatedly — it only prompts when permission is "default".
@@ -75,7 +86,11 @@ export function notifyChairmanDone({
       if (typeof window !== 'undefined') {
         window.focus();
         if (conversationId) {
-          window.location.href = `/c/${conversationId}${VERDICT_ANCHOR}`;
+          if (navigateCallback) {
+            navigateCallback(conversationId);
+          } else {
+            window.location.href = `/c/${conversationId}${VERDICT_ANCHOR}`;
+          }
         }
       }
       notification.close();

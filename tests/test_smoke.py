@@ -134,6 +134,34 @@ async def main() -> int:
         assert meta["title"] == "New Title"
         print("OK  update_conversation_title")
 
+        # 10a) delete_conversation removes the conversation and its messages
+        r = await client.delete(f"/api/conversations/{cid}")
+        assert r.status_code == 204, r.text
+        r = await client.get(f"/api/conversations/{cid}")
+        assert r.status_code == 404, r.text
+        items = await _list(client)
+        assert not any(c["id"] == cid for c in items)
+        # Regression guard: message rows must be gone too, not just the
+        # conversation row — ON DELETE CASCADE only fires while
+        # PRAGMA foreign_keys=ON is set on the shared connection.
+        db = backend.storage._db_conn()
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?", (cid,)
+        )
+        assert (await cur.fetchone())[0] == 0
+        print("OK  DELETE /api/conversations/{id} (messages cascade-deleted)")
+
+        # 10b) deleting a nonexistent conversation returns 404
+        r = await client.delete(f"/api/conversations/{uuid.uuid4()}")
+        assert r.status_code == 404, r.text
+        print("OK  DELETE /api/conversations/<missing> -> 404")
+
+        # Re-create a conversation for the remaining tests.
+        r = await client.post("/api/conversations", json={})
+        assert r.status_code == 200, r.text
+        cid = r.json()["id"]
+        print(f"OK  recreated conversation id={cid}")
+
         # 11) update_conversation_title on a missing conversation raises
         try:
             await backend.storage.update_conversation_title(

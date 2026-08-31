@@ -6,6 +6,7 @@ import {
   useNavigate,
   useLocation,
 } from 'react-router-dom';
+import { Toaster, toast } from 'sonner';
 import {
   QueryClient,
   QueryClientProvider,
@@ -56,6 +57,24 @@ function useCreateConversation() {
     onSuccess: (conversation) => {
       queryClient.setQueryData(['conversation', conversation.id], conversation);
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+}
+
+function useDeleteConversation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: api.deleteConversation,
+    onSuccess: (_, conversationId) => {
+      queryClient.removeQueries({ queryKey: ['conversation', conversationId] });
+      queryClient.setQueryData(['conversations'], (old) =>
+        Array.isArray(old)
+          ? old.filter((conv) => conv.id !== conversationId)
+          : old
+      );
+    },
+    onError: () => {
+      toast.error('Failed to delete conversation');
     },
   });
 }
@@ -245,7 +264,9 @@ function useSendMessage() {
 function App() {
   const { data: conversations = [] } = useConversations();
   const navigate = useNavigate();
+  const location = useLocation();
   const create = useCreateConversation();
+  const deleteConv = useDeleteConversation();
 
   // Register a React Router navigator for notification clicks so that focusing
   // the tab from a notification does not force a full page reload.
@@ -260,6 +281,9 @@ function App() {
   const emptyConversation = conversations.find(
     (conv) => conv.message_count === 0
   );
+
+  const activeConversationId =
+    location.pathname.match(/^\/c\/([^/]+)$/)?.[1] ?? null;
 
   const handleNewConversation = useCallback(async () => {
     // If we already have an empty conversation, just open it instead of
@@ -277,12 +301,38 @@ function App() {
     }
   }, [create, navigate, emptyConversation]);
 
+  const handleDeleteConversation = useCallback(
+    async (conversationId) => {
+      if (
+        !window.confirm(
+          'Delete this conversation? This action cannot be undone.'
+        )
+      ) {
+        return;
+      }
+
+      try {
+        await deleteConv.mutateAsync(conversationId);
+        if (conversationId === activeConversationId) {
+          navigate('/', { replace: true });
+        }
+        toast.success('Conversation deleted');
+      } catch (err) {
+        // Error toast is handled by the mutation's onError.
+        console.error('Failed to delete conversation:', err);
+      }
+    },
+    [activeConversationId, deleteConv, navigate]
+  );
+
   return (
     <div className="app">
       <Sidebar
         conversations={conversations}
         onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
         isCreating={create.isPending}
+        isDeleting={deleteConv.isPending}
       />
       <Routes>
         <Route path="/" element={<HomeRoute />} />
@@ -408,6 +458,15 @@ export default function AppWithProviders() {
   return (
     <QueryClientProvider client={queryClient}>
       <App />
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          style: {
+            fontFamily:
+              "var(--font-body), system-ui, -apple-system, 'Segoe UI', sans-serif",
+          },
+        }}
+      />
     </QueryClientProvider>
   );
 }

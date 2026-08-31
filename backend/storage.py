@@ -330,3 +330,25 @@ async def update_conversation_title(conversation_id: str, title: str) -> None:
     await db.commit()
     if cur.rowcount == 0:
         raise ValueError(f"Conversation {conversation_id} not found")
+
+
+async def delete_conversation(conversation_id: str) -> bool:
+    """
+    Permanently delete a conversation and all of its messages.
+
+    Returns True if a row was deleted, False if the conversation did not exist.
+
+    Messages are removed automatically by the existing ON DELETE CASCADE
+    foreign-key constraint.
+
+    Note: this only removes SQLite state. A leftover pre-migration legacy
+    JSON file (data/conversations/<id>.json) is not deleted, so re-running
+    migrate_json_to_sqlite.migrate() would re-import that conversation.
+    """
+    db = await _get_db()
+    cur = await db.execute(
+        "DELETE FROM conversations WHERE id = ?",
+        (conversation_id,),
+    )
+    await db.commit()
+    return cur.rowcount > 0

@@ -93,7 +93,9 @@
   }
 
   .conversation-item {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 10px;
     padding: 12px 20px 12px 24px;
     cursor: pointer;
     text-decoration: none;
@@ -111,7 +113,58 @@
       border-left-color: var(--gold-line);
 
       .conversation-title { color: var(--accent-text); }
+
+      .delete-conversation-btn {
+        opacity: 1;
+        color: var(--accent-text);
+      }
     }
+  }
+
+  .conversation-item-content {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .delete-conversation-btn {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+      opacity var(--transition-fast),
+      background var(--transition-fast),
+      color var(--transition-fast);
+
+    &:hover {
+      background: oklch(60% 0.22 25 / 0.12);
+      color: oklch(55% 0.2 25);
+    }
+
+    &:focus-visible {
+      opacity: 1;
+      outline: 2px solid var(--accent);
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      cursor: not-allowed;
+      opacity: 0.4;
+    }
+  }
+
+  .conversation-item:hover .delete-conversation-btn,
+  .conversation-item:focus-within .delete-conversation-btn {
+    opacity: 1;
   }
 
   .conversation-title {

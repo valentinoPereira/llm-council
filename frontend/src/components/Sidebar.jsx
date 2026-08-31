@@ -7,7 +7,9 @@ import './Sidebar.css';
 export default function Sidebar({
   conversations,
   onNewConversation,
+  onDeleteConversation,
   isCreating = false,
+  isDeleting = false,
 }) {
   const { conversationId: activeId } = useParams();
   const listRef = useRef(null);
@@ -80,13 +82,45 @@ export default function Sidebar({
                   `conversation-item ${isActive ? 'active' : ''}`
                 }
               >
-                <div className="conversation-title">
-                  {conv.title || 'New Conversation'}
+                <div className="conversation-item-content">
+                  <div className="conversation-title">
+                    {conv.title || 'New Conversation'}
+                  </div>
+                  <div className="conversation-meta">
+                    {conv.message_count}{' '}
+                    {conv.message_count === 1 ? 'message' : 'messages'}
+                  </div>
                 </div>
-                <div className="conversation-meta">
-                  {conv.message_count}{' '}
-                  {conv.message_count === 1 ? 'message' : 'messages'}
-                </div>
+                <button
+                  type="button"
+                  className="delete-conversation-btn"
+                  title="Delete conversation"
+                  aria-label="Delete conversation"
+                  disabled={isDeleting}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onDeleteConversation?.(conv.id);
+                  }}
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <polyline points="3 6 5 6 21 6" />
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
+                </button>
               </NavLink>
             ))
           )}

@@ -30,5 +30,5 @@ The entire flow is async/parallel where possible to minimize latency.
 - use the caveman style in all your responses (except for any tool calling)
 - always use the english language to respond
 - do not automatically ship code, only do so when the user asks you to
-- when responding in plan mode, assume that the implementation is going to be done by a smaller model, hence you should provide as much detail as possible while keeping the plan robust
-- always assume powershell terminal is used for your toolcall `run_commands`, so always run commands compatible with windows powershell.
+- when responding in plan mode, always remember that the implementation is going to be done by a smaller model, hence you should provide as much detail as possible while keeping the plan robust
+- always use powershell compatible commands for your `run_commands` tool

@@ -1,10 +1,4 @@
----
-paths:
-  - "backend/**"
-  - "tests/**"
----
-
-# Backend Guidelines
+# Backend Rules (backend/ and tests/)
 
 ## Ports
 
@@ -16,14 +10,26 @@ paths:
 
 - CORS is enabled for `localhost:5173` and `localhost:3000`. Any change to frontend origin must be reflected in the allowed origins in `backend/main.py`.
 
+## Pipeline semantics
+
+- Stage 1 and Stage 2 fan out model calls in parallel (`asyncio.gather()` via `query_models_parallel()`); do not run them sequentially.
+- Stage 3 (chairman synthesis) receives full context: original query, all Stage 1 responses, and all Stage 2 evaluations/rankings. The chairman runs under an app-level timeout with a fallback model (`CHAIRMAN_TIMEOUT_S`, `CHAIRMAN_FALLBACK_MODEL` in `config.py`).
+- The backend builds and returns the `label_to_model` mapping for Stage 2 anonymization.
+
+## Chairman failover
+
+- Stage 3 runs under an app-level timeout (`CHAIRMAN_TIMEOUT_S` in `config.py`). On timeout or failure it retries once with `CHAIRMAN_FALLBACK_MODEL` and marks the result with `fallback: true`; if both fail, it returns a graceful error result instead of aborting.
+
 ## Error handling — graceful degradation
 
 - Continue with successful responses if some models fail; never fail the entire request due to a single model failure.
 - Log errors but don't expose them to the user unless all models fail.
 
-## Chairman failover
+## Storage schema
 
-- Stage 3 runs under an app-level timeout (`CHAIRMAN_TIMEOUT_S` in `config.py`). On timeout or failure it retries once with `CHAIRMAN_FALLBACK_MODEL` and marks the result with `fallback: true`; if both fail, it returns a graceful error result instead of aborting.
+- Conversations persist in SQLite via `backend/storage.py` (aiosqlite) — DB file is `data/conversations/council.db`.
+- Tables: `conversations(id, created_at, title)` and `messages(id, conversation_id, role, content, stage1, stage2, stage3, metadata, created_at)`. Stage payloads and `metadata` are stored as JSON blobs — keep this shape; don't add new persisted columns without updating `storage.py`.
+- Legacy JSON files in `data/conversations/*.json` are pre-migration leftovers — only `backend/migrate_json_to_sqlite.py` reads them; never write new JSON conversation files.
 
 ## Metadata persistence
 

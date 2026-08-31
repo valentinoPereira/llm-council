@@ -141,7 +141,15 @@ async def main() -> int:
         assert r.status_code == 404, r.text
         items = await _list(client)
         assert not any(c["id"] == cid for c in items)
-        print("OK  DELETE /api/conversations/{id}")
+        # Regression guard: message rows must be gone too, not just the
+        # conversation row — ON DELETE CASCADE only fires while
+        # PRAGMA foreign_keys=ON is set on the shared connection.
+        db = backend.storage._db_conn()
+        cur = await db.execute(
+            "SELECT COUNT(*) FROM messages WHERE conversation_id = ?", (cid,)
+        )
+        assert (await cur.fetchone())[0] == 0
+        print("OK  DELETE /api/conversations/{id} (messages cascade-deleted)")
 
         # 10b) deleting a nonexistent conversation returns 404
         r = await client.delete(f"/api/conversations/{uuid.uuid4()}")

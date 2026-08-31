@@ -340,6 +340,10 @@ async def delete_conversation(conversation_id: str) -> bool:
 
     Messages are removed automatically by the existing ON DELETE CASCADE
     foreign-key constraint.
+
+    Note: this only removes SQLite state. A leftover pre-migration legacy
+    JSON file (data/conversations/<id>.json) is not deleted, so re-running
+    migrate_json_to_sqlite.migrate() would re-import that conversation.
     """
     db = await _get_db()
     cur = await db.execute(

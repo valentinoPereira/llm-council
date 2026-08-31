@@ -460,10 +460,7 @@ export default function AppWithProviders() {
       <App />
       <Toaster
         position="top-right"
-        richColors
-        closeButton={false}
         toastOptions={{
-          closeButton: false,
           style: {
             fontFamily:
               "var(--font-body), system-ui, -apple-system, 'Segoe UI', sans-serif",

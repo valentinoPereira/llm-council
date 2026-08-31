@@ -12,6 +12,12 @@
   .sidebar-header {
     padding: 28px 20px 20px;
     border-bottom: 1px solid var(--border-default);
+    /* Faint champagne glow behind the brand — depth without shadow spam. */
+    background: radial-gradient(
+      110% 110% at 30% 0%,
+      color-mix(in oklch, var(--gold-line) 8%, transparent),
+      transparent 72%
+    );
   }
 
   .brand {

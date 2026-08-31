@@ -5,7 +5,7 @@ import json
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Coroutine, Dict, List
+from typing import Any, Coroutine, Dict, List, Optional, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,7 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 from . import storage
 from .council import (
     calculate_aggregate_rankings,
-    generate_conversation_title,
+    generate_conversation_metadata,
     run_full_council,
     stage1_collect_responses,
     stage2_collect_rankings,
@@ -135,6 +135,7 @@ class ConversationMetadata(BaseModel):
     id: str
     created_at: str
     title: str
+    category: Optional[str] = None
     message_count: int
 
 
@@ -143,6 +144,7 @@ class Conversation(BaseModel):
     id: str
     created_at: str
     title: str
+    category: Optional[str] = None
     messages: List[Dict[str, Any]]
 
 
@@ -210,10 +212,10 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     # Start title generation in parallel with the council run, mirroring the
     # streaming endpoint's pattern.
-    title_task: asyncio.Task[str] | None = None
+    title_task: asyncio.Task[Tuple[str, str]] | None = None
     if is_first_message:
         title_task = asyncio.create_task(
-            generate_conversation_title(request.content, session_id=session_id)
+            generate_conversation_metadata(request.content, session_id=session_id)
         )
 
     try:
@@ -238,8 +240,8 @@ async def send_message(conversation_id: str, request: SendMessageRequest):
 
     # Persist the title if it was being generated.
     if title_task is not None:
-        title = await title_task
-        await storage.update_conversation_title(conversation_id, title)
+        title, category = await title_task
+        await storage.update_conversation_title(conversation_id, title, category)
 
     # Return the complete response with metadata
     return {
@@ -280,7 +282,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
         # One conversation = one OpenRouter session, across all model calls
         # (stages 1-3 and title generation).
         session_id = openrouter_session_id(conversation_id)
-        title_task: asyncio.Task[str] | None = None
+        title_task: asyncio.Task[Tuple[str, str]] | None = None
         try:
             # Add user message
             await storage.add_user_message(conversation_id, request.content)
@@ -288,7 +290,7 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             # Start title generation in parallel (don't await yet)
             if is_first_message:
                 title_task = asyncio.create_task(
-                    generate_conversation_title(request.content, session_id=session_id)
+                    generate_conversation_metadata(request.content, session_id=session_id)
                 )
 
             # Stage 1: Collect responses
@@ -341,9 +343,9 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
 
             # Wait for title generation if it was started
             if title_task:
-                title = await title_task
-                await storage.update_conversation_title(conversation_id, title)
-                yield {"data": json.dumps({"type": "title_complete", "data": {"title": title}})}
+                title, category = await title_task
+                await storage.update_conversation_title(conversation_id, title, category)
+                yield {"data": json.dumps({"type": "title_complete", "data": {"title": title, "category": category}})}
 
             # Save complete assistant message
             await storage.add_assistant_message(

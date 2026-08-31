@@ -7,7 +7,7 @@ async coroutines, so the API layer can `await` them directly without
 
 Schema:
 
-    conversations(id TEXT PK, created_at TEXT, title TEXT)
+    conversations(id TEXT PK, created_at TEXT, title TEXT, category TEXT)
     messages(id INTEGER PK, conversation_id TEXT FK, role TEXT,
             content TEXT, stage1 TEXT, stage2 TEXT, stage3 TEXT,
             metadata TEXT, created_at TEXT)
@@ -37,7 +37,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
     id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
-    title TEXT NOT NULL DEFAULT 'New Conversation'
+    title TEXT NOT NULL DEFAULT 'New Conversation',
+    category TEXT
 );
 CREATE TABLE IF NOT EXISTS messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,6 +82,17 @@ async def init_db() -> None:
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA foreign_keys=ON")
     await _db.executescript(_SCHEMA)
+
+    # Lightweight migrations for databases created before the column
+    # existed. SQLite has no ADD COLUMN IF NOT EXISTS, so check first.
+    cur = await _db.execute("PRAGMA table_info(conversations)")
+    columns = {row["name"] for row in await cur.fetchall()}
+    await cur.close()
+    if "category" not in columns:
+        await _db.execute(
+            "ALTER TABLE conversations ADD COLUMN category TEXT"
+        )
+
     await _db.commit()
 
 
@@ -174,7 +186,7 @@ async def get_or_create_empty_conversation(conversation_id: str) -> Dict[str, An
         db = await _get_db()
         cur = await db.execute(
             """
-            SELECT c.id, c.created_at, c.title
+            SELECT c.id, c.created_at, c.title, c.category
             FROM conversations c
             WHERE NOT EXISTS (
                 SELECT 1 FROM messages m WHERE m.conversation_id = c.id
@@ -190,6 +202,7 @@ async def get_or_create_empty_conversation(conversation_id: str) -> Dict[str, An
                 "id": row["id"],
                 "created_at": row["created_at"],
                 "title": row["title"],
+                "category": row["category"],
                 "messages": [],
             }
         return await create_conversation(conversation_id)
@@ -204,7 +217,7 @@ async def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
     """
     db = await _get_db()
     cur = await db.execute(
-        "SELECT id, created_at, title FROM conversations WHERE id = ?",
+        "SELECT id, created_at, title, category FROM conversations WHERE id = ?",
         (conversation_id,),
     )
     crow = await cur.fetchone()
@@ -224,6 +237,7 @@ async def get_conversation(conversation_id: str) -> Optional[Dict[str, Any]]:
         "id": crow["id"],
         "created_at": crow["created_at"],
         "title": crow["title"],
+        "category": crow["category"],
         "messages": messages,
     }
 
@@ -237,7 +251,7 @@ async def list_conversations() -> List[Dict[str, Any]]:
     db = await _get_db()
     cur = await db.execute(
         """
-        SELECT c.id, c.created_at, c.title,
+        SELECT c.id, c.created_at, c.title, c.category,
                COUNT(m.id) AS message_count
         FROM conversations c
         LEFT JOIN messages m ON m.conversation_id = c.id
@@ -252,6 +266,7 @@ async def list_conversations() -> List[Dict[str, Any]]:
             "id": r["id"],
             "created_at": r["created_at"],
             "title": r["title"],
+            "category": r["category"],
             "message_count": r["message_count"],
         }
         for r in rows
@@ -316,17 +331,29 @@ async def add_assistant_message(
     await db.commit()
 
 
-async def update_conversation_title(conversation_id: str, title: str) -> None:
+async def update_conversation_title(
+    conversation_id: str,
+    title: str,
+    category: Optional[str] = None,
+) -> None:
     """
-    Update the title of a conversation.
+    Update the title of a conversation, optionally its category too.
+
+    When category is None the existing category is left untouched.
 
     Raises ValueError if the conversation does not exist.
     """
     db = await _get_db()
-    cur = await db.execute(
-        "UPDATE conversations SET title = ? WHERE id = ?",
-        (title, conversation_id),
-    )
+    if category is None:
+        cur = await db.execute(
+            "UPDATE conversations SET title = ? WHERE id = ?",
+            (title, conversation_id),
+        )
+    else:
+        cur = await db.execute(
+            "UPDATE conversations SET title = ?, category = ? WHERE id = ?",
+            (title, category, conversation_id),
+        )
     await db.commit()
     if cur.rowcount == 0:
         raise ValueError(f"Conversation {conversation_id} not found")

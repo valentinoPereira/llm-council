@@ -110,6 +110,16 @@ html [data-sonner-toaster] [data-sonner-toast][data-type='info'] {
   color: var(--info-text);
 }
 
+/* ── Depth ───────────────────────────────────────────────────────────────────
+   Stage panels read as raised surfaces rather than flat boxes: a hairline
+   gold top-light on the upper edge catches the eye without casting shadows.
+   Applied globally so every stage (I/II/III) stays consistent. */
+.stage {
+  box-shadow:
+    inset 0 1px 0 color-mix(in oklch, var(--gold-line) 12%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
 /* ── Selection & focus ─────────────────────────────────────────────────────── */
 
 ::selection {
@@ -290,4 +300,5 @@ html [data-sonner-toaster] [data-sonner-toast][data-type='info'] {
 
   .katex { font-size: 1.05em; }
 }
+
 

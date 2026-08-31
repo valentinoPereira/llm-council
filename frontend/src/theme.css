@@ -51,7 +51,8 @@
   /* ── Text ───────────────────────────────────────────────────────────────── */
   --text-primary:         light-dark(#1c1a16, #ece9e0);
   --text-secondary:       light-dark(#5a554a, #a8a296);
-  --text-muted:           light-dark(#8b8577, #6f6a5d);
+  /* Muted raised to ≥ 4.5:1 against app + panel surfaces (dark #8a8272, light #6d6658). */
+  --text-muted:           light-dark(#6d6658, #8a8272);
   --text-on-accent:       light-dark(#faf9f5, #14130f);
 
   /* ── Elevation & motion ─────────────────────────────────────────────────── */

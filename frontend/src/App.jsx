@@ -262,7 +262,10 @@ function useSendMessage() {
 }
 
 function App() {
-  const { data: conversations = [] } = useConversations();
+  const {
+    data: conversations = [],
+    isLoading: isLoadingConversations,
+  } = useConversations();
   const navigate = useNavigate();
   const location = useLocation();
   const create = useCreateConversation();
@@ -329,6 +332,7 @@ function App() {
     <div className="app">
       <Sidebar
         conversations={conversations}
+        isLoading={isLoadingConversations}
         onNewConversation={handleNewConversation}
         onDeleteConversation={handleDeleteConversation}
         isCreating={create.isPending}

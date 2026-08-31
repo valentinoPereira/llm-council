@@ -6,6 +6,7 @@ import './Sidebar.css';
 
 export default function Sidebar({
   conversations,
+  isLoading = false,
   onNewConversation,
   onDeleteConversation,
   isCreating = false,
@@ -30,6 +31,10 @@ export default function Sidebar({
 
   // Selecting a conversation on mobile closes the overlay sidebar.
   const handleNavigate = () => setIsOpen(false);
+
+  // Shimmer placeholder rows shown only during the very first conversations
+  // fetch, so the sidebar doesn't flash "No conversations yet".
+  const skeletonRows = [0, 1, 2, 3, 4, 5];
 
   return (
     <>
@@ -68,8 +73,30 @@ export default function Sidebar({
           </button>
         </div>
 
-        <nav className="conversation-list" ref={listRef} aria-label="Conversations">
-          {conversations.length === 0 ? (
+        <nav
+          className="conversation-list"
+          ref={listRef}
+          aria-label="Conversations"
+          aria-busy={isLoading || undefined}
+        >
+          {isLoading ? (
+            skeletonRows.map((i) => (
+              <div
+                key={`conversation-skeleton-${i}`}
+                className="conversation-skeleton"
+                aria-hidden="true"
+              >
+                <div
+                  className="skeleton-bar skeleton-title"
+                  style={{ animationDelay: `${i * 0.1}s` }}
+                />
+                <div
+                  className="skeleton-bar skeleton-meta"
+                  style={{ animationDelay: `${i * 0.1}s` }}
+                />
+              </div>
+            ))
+          ) : conversations.length === 0 ? (
             <div className="no-conversations">No conversations yet</div>
           ) : (
             conversations.map((conv) => (

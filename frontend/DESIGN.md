@@ -37,7 +37,7 @@ Three principles:
 ## Token architecture (`src/theme.css`)
 
 Kept the existing `light-dark()` + `color-mix(in oklch, ...)` architecture
-(per `.clinerules/frontend.md`); only the values and names changed.
+(per `.rules/frontend.md`); only the values and names changed.
 
 - **Surfaces**: `--bg-body / -app / -sidebar / -subtle / -panel / -hover`
   - Light = warm ivory paper (`#faf9f5` family). Dark = deep ink (`#14130f` family).

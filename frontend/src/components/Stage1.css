@@ -1,4 +1,5 @@
-/* Shared stage styling (Stage 1/2/3 build on this). */
+/* Shared stage styling is duplicated here for Stage 1's grid layout; the
+   header/numeral/title treatment matches Stage2/Stage3. */
 
 .stage {
   margin: 28px 0;
@@ -6,8 +7,6 @@
   background: var(--bg-subtle);
   border-radius: 8px;
   border: 1px solid var(--border-default);
-
-  /* ── Ceremonial header: gold roman numeral + small-caps kicker ──────────── */
 
   .stage-header {
     display: flex;
@@ -32,6 +31,8 @@
     color: var(--accent-text);
   }
 
+  .stage-heading { min-width: 0; }
+
   .stage-title {
     margin: 0;
     color: var(--text-primary);
@@ -50,78 +51,63 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
+}
 
-  /* ── Underline tabs (Radix) — not boxed browser-tabs ────────────────────── */
+/* ── Side-by-side comparison grid ─────────────────────────────────────────── */
 
-  .tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 4px;
-    flex-wrap: wrap;
-    border-bottom: 1px solid var(--border-default);
-  }
+.stage1-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+  gap: 16px;
+  align-items: start;
+}
 
-  .tab {
-    padding: 8px 12px 10px;
-    background: transparent;
-    border: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    color: var(--text-muted);
-    cursor: pointer;
-    font-size: 13px;
-    font-family: var(--font-body);
-    font-weight: 500;
-    transition:
-      color var(--transition-fast),
-      border-bottom-color var(--transition-fast);
+.response-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 18px 20px;
+  box-shadow: inset 0 1px 0 color-mix(in oklch, var(--gold-line) 10%, transparent);
+}
 
-    &:hover { color: var(--text-primary); }
+.response-card-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-default);
+}
 
-    &[data-state="active"] {
-      color: var(--accent-text);
-      border-bottom-color: var(--gold-line);
-      font-weight: 600;
-    }
-  }
+.response-card-name {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--accent-text);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+}
 
-  .tab-content {
-    padding: 16px 4px 4px;
-  }
+.duration-detail {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
 
-  .model-name {
-    color: var(--text-muted);
-    font-size: 12px;
-    margin-bottom: 12px;
-    font-family: var(--font-mono);
-  }
-
-  .response-text {
-    color: var(--text-primary);
-    line-height: 1.65;
-  }
-
-  /* ── Durations: quiet tabular numerals, no pill backgrounds ─────────────── */
-
-  .duration-badge {
-    margin-left: 6px;
-    font-size: 11px;
-    font-weight: 500;
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-muted);
-  }
-
-  .tab[data-state="active"] .duration-badge {
-    color: var(--accent-text);
-  }
-
-  .duration-detail {
-    margin-left: 8px;
-    font-size: 11px;
-    font-weight: 500;
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
-    color: var(--text-muted);
-  }
+.response-text {
+  color: var(--text-primary);
+  line-height: 1.65;
+  font-size: 14px;
+  min-width: 0;
 }

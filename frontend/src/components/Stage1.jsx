@@ -1,8 +1,15 @@
-import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
-import { formatDuration } from '../utils';
+import { displayModelName, formatDuration } from '../utils';
 import './Stage1.css';
 
+/**
+ * Stage 1 renders every member's independent response side by side.
+ *
+ * Comparison is the product — models are shown as an aligned grid (2-up on
+ * wide screens) rather than hidden behind tabs, so the reader can weigh each
+ * answer against its peers without clicking. Raw output stays fully
+ * inspectable; only the display name is prettified (tooltip holds the raw id).
+ */
 export default function Stage1({ responses }) {
   if (!responses || responses.length === 0) {
     return null;
@@ -20,38 +27,23 @@ export default function Stage1({ responses }) {
         </div>
       </div>
 
-      <Tabs.Root defaultValue="tab-0" orientation="horizontal">
-        <Tabs.List className="tabs">
-          {responses.map((resp, index) => (
-            <Tabs.Trigger
-              key={index}
-              value={`tab-${index}`}
-              className="tab"
-            >
-              {resp.model.split('/')[1] || resp.model}
-              {resp.duration_ms != null && (
-                <span className="duration-badge">{formatDuration(resp.duration_ms)}</span>
-              )}
-            </Tabs.Trigger>
-          ))}
-        </Tabs.List>
-
+      <div className="stage1-grid">
         {responses.map((resp, index) => (
-          <Tabs.Content key={index} value={`tab-${index}`} className="tab-content">
-            <div className="model-name">
-              {resp.model}
-              {resp.duration_ms != null && (
-                <span className="duration-detail">
-                  {formatDuration(resp.duration_ms)}
-                </span>
-              )}
-            </div>
+          <article key={index} className="response-card">
+            <header className="response-card-header">
+              <span className="response-card-name" title={resp.model}>
+                {displayModelName(resp.model)}
+              </span>
+              <span className="duration-detail">
+                {formatDuration(resp.duration_ms)}
+              </span>
+            </header>
             <div className="response-text markdown-content">
               <Markdown>{resp.response}</Markdown>
             </div>
-          </Tabs.Content>
+          </article>
         ))}
-      </Tabs.Root>
+      </div>
     </div>
   );
 }

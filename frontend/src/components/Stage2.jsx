@@ -1,6 +1,6 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
-import { formatDuration } from '../utils';
+import { displayModelName, formatDuration } from '../utils';
 import './Stage2.css';
 
 function deAnonymizeText(text, labelToModel) {
@@ -9,8 +9,7 @@ function deAnonymizeText(text, labelToModel) {
   let result = text;
   // Replace each "Response X" with the actual model name
   Object.entries(labelToModel).forEach(([label, model]) => {
-    const modelShortName = model.split('/')[1] || model;
-    result = result.replace(new RegExp(label, 'g'), `**${modelShortName}**`);
+    result = result.replace(new RegExp(label, 'g'), `**${displayModelName(model)}**`);
   });
   return result;
 }
@@ -48,7 +47,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
               value={`tab-${index}`}
               className="tab"
             >
-              {rank.model.split('/')[1] || rank.model}
+              {displayModelName(rank.model)}
               {rank.duration_ms != null && (
                 <span className="duration-badge">{formatDuration(rank.duration_ms)}</span>
               )}
@@ -58,8 +57,8 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
 
         {rankings.map((rank, index) => (
           <Tabs.Content key={index} value={`tab-${index}`} className="tab-content">
-            <div className="ranking-model">
-              {rank.model}
+            <div className="ranking-model" title={rank.model}>
+              {displayModelName(rank.model)}
               {rank.duration_ms != null && (
                 <span className="duration-detail">
                   {formatDuration(rank.duration_ms)}
@@ -80,7 +79,7 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
                   {rank.parsed_ranking.map((label, i) => (
                     <li key={i}>
                       {labelToModel && labelToModel[label]
-                        ? labelToModel[label].split('/')[1] || labelToModel[label]
+                        ? displayModelName(labelToModel[label])
                         : label}
                     </li>
                   ))}
@@ -102,8 +101,8 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
             {aggregateRankings.map((agg, index) => (
               <div key={index} className="aggregate-item">
                 <span className="rank-position">#{index + 1}</span>
-                <span className="rank-model">
-                  {agg.model.split('/')[1] || agg.model}
+                <span className="rank-model" title={agg.model}>
+                  {displayModelName(agg.model)}
                 </span>
                 <span className="rank-score">
                   Avg: {agg.average_rank.toFixed(2)}

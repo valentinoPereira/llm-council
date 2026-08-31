@@ -336,6 +336,16 @@ async def main() -> int:
                 assert marker in text, f"missing SSE event: {marker}"
             print("OK  streaming endpoint emits all 8 expected events")
 
+            # title_complete carries the category taxonomy field
+            title_line = [
+                line for line in text.splitlines()
+                if '"title_complete"' in line and line.startswith("data:")
+            ][0]
+            title_data = json.loads(title_line.split(":", 1)[1].strip())
+            assert title_data["data"]["title"], "title missing from title_complete"
+            assert title_data["data"]["category"], "category missing from title_complete"
+            print("OK  title_complete carries title + category:", title_data["data"])
+
             # The streamed conversation got its own session id
             expected_sid2 = f"llm-council-{cid2}"
             all_entries = [e for entries in captured.values() for e in entries]
@@ -438,6 +448,15 @@ async def main() -> int:
         except Exception:
             pass
         shutil.rmtree(SANDBOX, ignore_errors=True)
+
+    # Category normalization: fixed taxonomy mapping + fallback.
+    from backend.council import _normalize_category
+    assert _normalize_category("science") == "Science"
+    assert _normalize_category('"Business & Markets"') == "Business & Markets"
+    assert _normalize_category("Philosophy.") == "Philosophy"
+    assert _normalize_category("Astrology") == "Unclassified"
+    assert _normalize_category(None) == "Unclassified"
+    print("OK  _normalize_category maps freeform replies to the taxonomy")
     return 0
 
 

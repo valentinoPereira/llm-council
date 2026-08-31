@@ -84,7 +84,11 @@ def _build_simulated_content(model: str, messages: List[Dict[str, str]], stage: 
     user_query = messages[-1].get("content", "") if messages else ""
 
     if stage == "title":
-        words = user_query.split()[:4] or ["Simulated", "Conversation"]
+        # The metadata prompt embeds the user's question on a "Question:"
+        # line; classify from that so the simulated title matches the query.
+        marker = "Question: "
+        question = user_query.split(marker)[-1].strip() if marker in user_query else ""
+        words = (question.split() or user_query.split())[:4] or ["Simulated", "Conversation"]
         return " ".join(words)
 
     if stage == "stage3":

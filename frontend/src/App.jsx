@@ -135,13 +135,23 @@ function useSendMessage() {
             queryClient.setQueryData(
               ['conversation', targetId],
               (old) =>
-                old ? { ...old, title: event.data.title } : old
+                old
+                  ? {
+                      ...old,
+                      title: event.data.title,
+                      category: event.data.category ?? old.category,
+                    }
+                  : old
             );
             queryClient.setQueryData(['conversations'], (old) => {
               if (!old) return old;
               return old.map((c) =>
                 c.id === targetId
-                  ? { ...c, title: event.data.title }
+                  ? {
+                      ...c,
+                      title: event.data.title,
+                      category: event.data.category ?? c.category,
+                    }
                   : c
               );
             });

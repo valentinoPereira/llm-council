@@ -1,5 +1,5 @@
 import Markdown from './Markdown';
-import { formatDuration } from '../utils';
+import { displayModelName, formatDuration } from '../utils';
 import './Stage3.css';
 
 export default function Stage3({ finalResponse }) {
@@ -56,7 +56,11 @@ export default function Stage3({ finalResponse }) {
         <div className="chairman-label">
           {finalResponse.fallback ? 'A Vice-Chairman stepped in' : 'Delivered by the Chairman'}
           {' · '}
-          {finalResponse.model.split('/')[1] || finalResponse.model}
+          {finalResponse.model && (
+            <span title={finalResponse.model}>
+              {displayModelName(finalResponse.model)}
+            </span>
+          )}
           {finalResponse.duration_ms != null && (
             <span className="duration-detail">
               {formatDuration(finalResponse.duration_ms)}

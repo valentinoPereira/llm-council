@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink, useParams } from 'react-router-dom';
 import CouncilMark from './CouncilMark';
 import ThemeToggle from './ThemeToggle';
+import { formatRelativeTime } from '../utils';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -114,8 +115,8 @@ export default function Sidebar({
                     {conv.title || 'New Conversation'}
                   </div>
                   <div className="conversation-meta">
-                    {conv.message_count}{' '}
-                    {conv.message_count === 1 ? 'message' : 'messages'}
+                    {formatRelativeTime(conv.created_at)}
+                    {conv.category && <> · {conv.category}</>}
                   </div>
                 </div>
                 <button

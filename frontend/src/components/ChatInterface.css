@@ -13,9 +13,11 @@
     padding: 32px 24px 24px;
   }
 
-  /* Centered reading column — long lines are the enemy of luxury. */
+  /* Centered reading column — long lines are the enemy of luxury.
+     Wide enough for the two-up Stage 1 grid; not so wide that verdict prose
+     stretches into unreadable line lengths. */
   .reading-column {
-    max-width: 760px;
+    max-width: 900px;
     margin: 0 auto;
   }
 
@@ -283,7 +285,7 @@
   }
 
   .composer {
-    max-width: 760px;
+    max-width: 900px;
     margin: 0 auto;
     background: var(--bg-panel);
     border: 1px solid var(--border-default);

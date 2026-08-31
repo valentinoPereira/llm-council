@@ -4,13 +4,15 @@ import asyncio
 import re
 import time
 from collections import defaultdict
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from .config import (
     CHAIRMAN_FALLBACK_MODEL,
     CHAIRMAN_MODEL,
     CHAIRMAN_TIMEOUT_S,
+    CONVERSATION_CATEGORIES,
     COUNCIL_MODELS,
+    UNCATEGORIZED,
 )
 from .openrouter import query_model, query_models_parallel
 
@@ -344,23 +346,32 @@ def calculate_aggregate_rankings(
     return aggregate
 
 
-async def generate_conversation_title(user_query: str, session_id: str = "") -> str:
+async def generate_conversation_metadata(user_query: str, session_id: str = "") -> Tuple[str, str]:
     """
-    Generate a short title for a conversation based on the first user message.
+    Generate a short title and a fixed-taxonomy category for a conversation
+    from its first user message. Both come from a single model call so there
+    is no extra cost over title-only generation.
 
     Args:
         user_query: The first user message
         session_id: OpenRouter session id (conversation grouping)
 
     Returns:
-        A short title (3-5 words)
+        Tuple of (title, category). Category is always one of
+        CONVERSATION_CATEGORIES or UNCATEGORIZED; a malformed model reply
+        degrades to a bare title with UNCATEGORIZED rather than failing.
     """
-    title_prompt = f"""Generate a very short title (3-5 words maximum) that summarizes the following question.
+    categories_list = "\n".join(f"- {c}" for c in CONVERSATION_CATEGORIES)
+    title_prompt = f"""Generate a very short title (3-5 words maximum) that summarizes the following question, and classify the question into exactly one category.
 The title should be concise and descriptive. Do not use quotes or punctuation in the title.
+The category MUST be one from this list:
+{categories_list}
 
-Question: {user_query}
+Respond in EXACTLY this format (two lines, no extra text):
+TITLE: <your title>
+CATEGORY: <one category from the list>
 
-Title:"""
+Question: {user_query}"""
 
     messages = [{"role": "user", "content": title_prompt}]
 
@@ -372,18 +383,33 @@ Title:"""
 
     if response is None:
         # Fallback to a generic title
-        return "New Conversation"
+        return "New Conversation", UNCATEGORIZED
 
-    title = response.get('content', 'New Conversation').strip()
+    raw = response.get('content', "New Conversation").strip()
+    title_match = re.search(r'TITLE:\s*(.+)', raw)
+    category_match = re.search(r'CATEGORY:\s*(.+)', raw)
+
+    title = title_match.group(1).strip() if title_match else raw
 
     # Clean up the title - remove quotes, limit length
     title = title.strip('"\'')
-
-    # Truncate if too long
     if len(title) > 50:
         title = title[:47] + "..."
 
-    return title
+    category = _normalize_category(category_match.group(1) if category_match else None)
+
+    return title, category
+
+
+def _normalize_category(raw: Optional[str]) -> str:
+    """Map a freeform model reply to the fixed taxonomy, or UNCATEGORIZED."""
+    if not raw:
+        return UNCATEGORIZED
+    cleaned = raw.strip().strip("\"'").rstrip('.')
+    for category in CONVERSATION_CATEGORIES:
+        if cleaned.lower() == category.lower():
+            return category
+    return UNCATEGORIZED
 
 
 async def run_full_council(

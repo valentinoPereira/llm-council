@@ -32,6 +32,26 @@ CHAIRMAN_FALLBACK_MODEL = "x-ai/grok-4.6"
 # live elapsed time and detect long-running stages.
 STAGE_HEARTBEAT_S = 10.0
 
+# Fixed conversation category taxonomy. Title generation asks the model to
+# pick exactly one of these for the sidebar. Anything the model returns that
+# is not in this list is normalized to UNCATEGORIZED.
+CONVERSATION_CATEGORIES = [
+    "Science",
+    "Mathematics",
+    "Philosophy",
+    "Technology",
+    "Business & Markets",
+    "Health",
+    "History",
+    "Law & Policy",
+    "Current Affairs",
+    "Arts & Culture",
+    "General",
+]
+
+# Category stored/displayed when the classifier returns nothing usable.
+UNCATEGORIZED = "Unclassified"
+
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
 

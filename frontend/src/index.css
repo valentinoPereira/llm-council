@@ -28,6 +28,112 @@ body {
   overflow: hidden;
 }
 
+/* Sonner toast customizations to match the app's theme. */
+[data-sonner-toaster] {
+  --normal-bg: var(--bg-panel);
+  --normal-text: var(--text-primary);
+  --normal-border: var(--border-default);
+
+  /* Success: muted sage green that complements the champagne-gold accent. */
+  --success-bg: light-dark(
+    color-mix(in oklch, #6b7c4c 10%, #ffffff),
+    color-mix(in oklch, #9cae72 14%, #1b1a15)
+  );
+  --success-border: light-dark(
+    color-mix(in oklch, #6b7c4c 32%, #e3dfd2),
+    color-mix(in oklch, #9cae72 35%, #2b2a23)
+  );
+  --success-text: light-dark(#4d5a35, #c9d8a4);
+
+  /* Error: warm clay red. */
+  --error-bg: light-dark(
+    color-mix(in oklch, #a44a3f 10%, #ffffff),
+    color-mix(in oklch, #d67c72 12%, #1b1a15)
+  );
+  --error-border: light-dark(
+    color-mix(in oklch, #a44a3f 32%, #e3dfd2),
+    color-mix(in oklch, #d67c72 35%, #2b2a23)
+  );
+  --error-text: light-dark(#8a3a31, #f0a9a0);
+
+  /* Warning/Info are currently unused but themed for consistency. */
+  --warning-bg: light-dark(
+    color-mix(in oklch, #b08535 12%, #ffffff),
+    color-mix(in oklch, #e6c27c 12%, #1b1a15)
+  );
+  --warning-border: light-dark(
+    color-mix(in oklch, #b08535 30%, #e3dfd2),
+    color-mix(in oklch, #e6c27c 30%, #2b2a23)
+  );
+  --warning-text: light-dark(#7a5f30, #f3dca1);
+
+  --info-bg: light-dark(
+    color-mix(in oklch, #4f6f7a 10%, #ffffff),
+    color-mix(in oklch, #8ab4c2 12%, #1b1a15)
+  );
+  --info-border: light-dark(
+    color-mix(in oklch, #4f6f7a 32%, #e3dfd2),
+    color-mix(in oklch, #8ab4c2 35%, #2b2a23)
+  );
+  --info-text: light-dark(#36525c, #a8dce8);
+}
+
+/*
+ * Sonner ships its own defaults with the same specificity, so override the
+ * rendered toast elements directly to guarantee our theme wins.
+ */
+html [data-sonner-toaster] [data-sonner-toast][data-type='success'],
+html [data-sonner-toaster] [data-sonner-toast][data-type='success'] [data-close-button] {
+  background: light-dark(
+    color-mix(in oklch, #6b7c4c 10%, #ffffff),
+    color-mix(in oklch, #9cae72 14%, #1b1a15)
+  );
+  border-color: light-dark(
+    color-mix(in oklch, #6b7c4c 32%, #e3dfd2),
+    color-mix(in oklch, #9cae72 35%, #2b2a23)
+  );
+  color: light-dark(#4d5a35, #c9d8a4);
+}
+
+html [data-sonner-toaster] [data-sonner-toast][data-type='error'],
+html [data-sonner-toaster] [data-sonner-toast][data-type='error'] [data-close-button] {
+  background: light-dark(
+    color-mix(in oklch, #a44a3f 10%, #ffffff),
+    color-mix(in oklch, #d67c72 12%, #1b1a15)
+  );
+  border-color: light-dark(
+    color-mix(in oklch, #a44a3f 32%, #e3dfd2),
+    color-mix(in oklch, #d67c72 35%, #2b2a23)
+  );
+  color: light-dark(#8a3a31, #f0a9a0);
+}
+
+html [data-sonner-toaster] [data-sonner-toast][data-type='warning'],
+html [data-sonner-toaster] [data-sonner-toast][data-type='warning'] [data-close-button] {
+  background: light-dark(
+    color-mix(in oklch, #b08535 12%, #ffffff),
+    color-mix(in oklch, #e6c27c 12%, #1b1a15)
+  );
+  border-color: light-dark(
+    color-mix(in oklch, #b08535 30%, #e3dfd2),
+    color-mix(in oklch, #e6c27c 30%, #2b2a23)
+  );
+  color: light-dark(#7a5f30, #f3dca1);
+}
+
+html [data-sonner-toaster] [data-sonner-toast][data-type='info'],
+html [data-sonner-toaster] [data-sonner-toast][data-type='info'] [data-close-button] {
+  background: light-dark(
+    color-mix(in oklch, #4f6f7a 10%, #ffffff),
+    color-mix(in oklch, #8ab4c2 12%, #1b1a15)
+  );
+  border-color: light-dark(
+    color-mix(in oklch, #4f6f7a 32%, #e3dfd2),
+    color-mix(in oklch, #8ab4c2 35%, #2b2a23)
+  );
+  color: light-dark(#36525c, #a8dce8);
+}
+
 /* ── Selection & focus ─────────────────────────────────────────────────────── */
 
 ::selection {

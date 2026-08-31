@@ -134,6 +134,26 @@ async def main() -> int:
         assert meta["title"] == "New Title"
         print("OK  update_conversation_title")
 
+        # 10a) delete_conversation removes the conversation and its messages
+        r = await client.delete(f"/api/conversations/{cid}")
+        assert r.status_code == 204, r.text
+        r = await client.get(f"/api/conversations/{cid}")
+        assert r.status_code == 404, r.text
+        items = await _list(client)
+        assert not any(c["id"] == cid for c in items)
+        print("OK  DELETE /api/conversations/{id}")
+
+        # 10b) deleting a nonexistent conversation returns 404
+        r = await client.delete(f"/api/conversations/{uuid.uuid4()}")
+        assert r.status_code == 404, r.text
+        print("OK  DELETE /api/conversations/<missing> -> 404")
+
+        # Re-create a conversation for the remaining tests.
+        r = await client.post("/api/conversations", json={})
+        assert r.status_code == 200, r.text
+        cid = r.json()["id"]
+        print(f"OK  recreated conversation id={cid}")
+
         # 11) update_conversation_title on a missing conversation raises
         try:
             await backend.storage.update_conversation_title(

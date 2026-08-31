@@ -31,7 +31,7 @@ Three principles:
 | Copy tone | Formal/quiet ("Consult the Council", "Council Consensus", roman numerals) | Playful copy ("Street Cred") undermines the premium segment |
 | Default theme | **Dark** on first visit (system/light/dark toggle intact) | Deep charcoal + gold is the strongest expression of the concept |
 | Accent color | **Champagne gold** | The luxury cue; a gold hairline reads richer than a gold button. Rejected: generic SaaS blue (old UI), deep emerald (fallback if gold ever feels too literal) |
-| Fonts | `@fontsource-variable/fraunces` + `@fontsource-variable/inter` | Self-hosted via npm (no CDN dependency), variable weights |
+| Fonts | Inter + Fraunces (variable) | Self-hosted in `public/fonts/`, `<link rel="preload">`-ed latin subsets, `font-display: optional` — no FOUC / text-shift on load, no CDN dependency (see `src/fonts.css`) |
 | Favicon | Bespoke "council table" monogram (`public/council.svg`) | Six members seated around a gold ring |
 
 ## Token architecture (`src/theme.css`)
@@ -79,7 +79,8 @@ element is informational (yes: `--accent`/`--accent-text`) or decorative
   untouched — it is an architectural rule (`architecture.md`) and it also
   *supports* the premium positioning.
 - Plain nested CSS per component remains the house style (no Tailwind, no
-  CSS-in-JS). New runtime deps: only the two fontsource packages.
+  CSS-in-JS). No runtime font packages — Inter/Fraunces are vendored as static
+  files in `public/fonts/` and declared in `src/fonts.css`.
 
 ## Iterating in the future
 

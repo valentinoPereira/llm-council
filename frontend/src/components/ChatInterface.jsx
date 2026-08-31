@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import CouncilMark from './CouncilMark';
 import CouncilProgress from './CouncilProgress';
 import Markdown from './Markdown';
@@ -159,6 +160,8 @@ export default function ChatInterface({
   const containerRef = useRef(null);
   const hasRestoredScrollRef = useRef(false);
   const isInitialScrollRef = useRef(true);
+  const location = useLocation();
+  const navigate = useNavigate();
 
   // Save scroll position continuously so it's always up-to-date,
   // regardless of when/how the component unmounts.
@@ -198,6 +201,25 @@ export default function ChatInterface({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [conversation]);
+
+  // If the URL carries the verdict anchor (from a notification click), scroll
+  // the Stage 3 section into view once it exists and clear the anchor so a
+  // later back/forward doesn't jump unexpectedly.
+  useEffect(() => {
+    if (location.hash !== '#council-verdict') return;
+
+    const element = document.getElementById('council-verdict');
+    if (!element) return;
+
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    element.focus({ preventScroll: true });
+
+    const timeout = setTimeout(() => {
+      navigate(location.pathname + location.search, { replace: true });
+    }, 100);
+
+    return () => clearTimeout(timeout);
+  }, [location.hash, location.pathname, location.search, navigate, conversation]);
 
   // Return focus to the composer when a run finishes (loading → idle).
   // Skipped on mount and on touch-sized screens to avoid popping the keyboard.

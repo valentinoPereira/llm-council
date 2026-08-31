@@ -16,6 +16,11 @@ import {
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import { api } from './api';
+import {
+  ensureNotificationPermission,
+  notifyChairmanDone,
+  setNotificationNavigationCallback,
+} from './notifications';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -95,6 +100,16 @@ function useSendMessage() {
 
           if (eventType === 'stage3_complete') {
             stageCompleted = true;
+
+            const currentConversation = queryClient.getQueryData([
+              'conversation',
+              targetId,
+            ]);
+            notifyChairmanDone({
+              conversationId: targetId,
+              conversationTitle: currentConversation?.title,
+              hasError: Boolean(event.data?.error),
+            });
           }
 
           if (eventType === 'title_complete') {
@@ -232,6 +247,15 @@ function App() {
   const navigate = useNavigate();
   const create = useCreateConversation();
 
+  // Register a React Router navigator for notification clicks so that focusing
+  // the tab from a notification does not force a full page reload.
+  useEffect(() => {
+    setNotificationNavigationCallback((conversationId) => {
+      navigate(`/c/${conversationId}#council-verdict`);
+    });
+    return () => setNotificationNavigationCallback(null);
+  }, [navigate]);
+
   // The newest empty conversation is the canonical "new conversation".
   const emptyConversation = conversations.find(
     (conv) => conv.message_count === 0
@@ -280,6 +304,7 @@ function HomeRoute() {
 
   const handleSend = useCallback(
     async (content) => {
+      ensureNotificationPermission().catch(() => {});
       setIsCreating(true);
       try {
         const newConv = await create.mutateAsync();
@@ -341,6 +366,7 @@ function ChatRoute({ conversationId, onNewConversation }) {
       !initialSentRef.current &&
       conversation?.messages?.length === 0
     ) {
+      ensureNotificationPermission().catch(() => {});
       initialSentRef.current = true;
       send.mutate({ conversationId, content: initialMessage });
       navigate(location.pathname, { replace: true, state: {} });
@@ -349,6 +375,7 @@ function ChatRoute({ conversationId, onNewConversation }) {
 
   const handleSend = useCallback(
     (content) => {
+      ensureNotificationPermission().catch(() => {});
       send.mutate({ conversationId, content });
     },
     [send, conversationId]

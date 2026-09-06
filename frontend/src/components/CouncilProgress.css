@@ -12,6 +12,11 @@
     text-transform: uppercase;
     color: var(--accent-text);
     margin-bottom: 16px;
+    /* Single-line so the live→verdict label swap never wraps and changes
+       the box's height (which would reflow everything below it). */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .council-progress-steps {
@@ -94,8 +99,21 @@
   }
 
   .step-elapsed {
+    display: inline-block;
+    /* Reserve the widest plausible reading (" — 12m 05s") so the slot's
+       width never changes while it ticks or mounts/unmounts. 10ch is
+       deliberately generous: the em-dash and 'm' are wider than a '0' (the
+       ch unit), so the true max string stretches past its character count.
+       Digits use tabular numerals so 9s → 10s → 1m 00s don't alter width. */
+    min-width: 10ch;
+    font-variant-numeric: tabular-nums;
     color: var(--accent-text);
     font-weight: 500;
+    visibility: hidden;
+  }
+
+  .step-elapsed.is-live {
+    visibility: visible;
   }
 
   .step-connector {

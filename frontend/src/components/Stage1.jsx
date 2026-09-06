@@ -11,7 +11,7 @@ import './Stage1.css';
  * output stays fully inspectable; only the display name is prettified
  * (tooltip holds the raw id).
  */
-export default function Stage1({ responses }) {
+export default function Stage1({ responses, onUserReading }) {
   if (!responses || responses.length === 0) {
     return null;
   }
@@ -28,7 +28,11 @@ export default function Stage1({ responses }) {
         </div>
       </div>
 
-      <Tabs.Root defaultValue="tab-0" orientation="horizontal">
+      <Tabs.Root
+        defaultValue="tab-0"
+        orientation="horizontal"
+        onValueChange={onUserReading}
+      >
         <Tabs.List className="tabs">
           {responses.map((resp, index) => (
             <Tabs.Trigger

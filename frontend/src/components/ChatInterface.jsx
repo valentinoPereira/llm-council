@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import CouncilMark from './CouncilMark';
 import CouncilProgress from './CouncilProgress';
@@ -7,10 +7,8 @@ import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
 import StageNav from './StageNav';
+import useCouncilAutoScroll from '../hooks/useCouncilAutoScroll';
 import './ChatInterface.css';
-
-/** Persists per-conversation scroll positions across unmount/remount cycles. */
-const scrollPositions = new Map();
 
 const CONVENING_PHRASES = [
   { text: 'Convening the council' },
@@ -119,8 +117,10 @@ function ConveningIndicator({ deliberationReady = false }) {
  * stage present on the message. Order matches the render order below.
  */
 function getSections(msg, index) {
+  // The question lives on the preceding user message, so its anchor sits
+  // at index - 1, not this assistant message's index.
   return [
-    { id: `question-${index}`, label: 'Question' },
+    { id: `question-${index - 1}`, label: 'Question' },
     msg.stage1 && { id: `stage-1-${index}`, numeral: 'I', label: 'Deliberation' },
     msg.stage2 && { id: `stage-2-${index}`, numeral: 'II', label: 'Peer Review' },
     msg.stage3 && { id: `stage-3-${index}`, numeral: 'III', label: 'Verdict' },
@@ -169,52 +169,16 @@ export default function ChatInterface({
   isConversationLoading = false,
 }) {
   const [input, setInput] = useState('');
-  const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  const containerRef = useRef(null);
-  const hasRestoredScrollRef = useRef(false);
-  const isInitialScrollRef = useRef(true);
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Save scroll position continuously so it's always up-to-date,
-  // regardless of when/how the component unmounts.
-  const conversationIdRef = useRef(conversationId);
-  useEffect(() => {
-    conversationIdRef.current = conversationId;
-  }, [conversationId]);
-
-  const onScroll = () => {
-    const cid = conversationIdRef.current;
-    if (cid && containerRef.current) {
-      scrollPositions.set(cid, containerRef.current.scrollTop);
-    }
-  };
-
-  // Restore saved scroll position synchronously before the browser paints.
-  // useLayoutEffect ensures there's no visible flash of the wrong position.
-  useLayoutEffect(() => {
-    if (!conversationId || !containerRef.current) return;
-    const saved = scrollPositions.get(conversationId);
-    if (saved != null) {
-      containerRef.current.scrollTop = saved;
-      hasRestoredScrollRef.current = true;
-      isInitialScrollRef.current = false;
-    }
-  }, [conversationId, conversation]);
-
-  // Scroll to bottom when conversation data arrives.
-  // First load (no saved position): instant. Streaming updates: smooth.
-  // Skipped entirely when a saved scroll position was restored.
-  useEffect(() => {
-    if (!conversation || hasRestoredScrollRef.current) return;
-    if (isInitialScrollRef.current) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'auto' });
-      isInitialScrollRef.current = false;
-    } else {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [conversation]);
+  const {
+    containerRef,
+    messagesEndRef,
+    onScroll,
+    markUserReading,
+  } = useCouncilAutoScroll({ conversation, conversationId });
 
   // If the URL carries the verdict anchor (from a notification click), scroll
   // the latest Stage 3 section into view and clear the anchor so a later
@@ -352,7 +316,7 @@ export default function ChatInterface({
                         tabIndex={-1}
                         aria-label="Stage I — Deliberation"
                       >
-                        <Stage1 responses={msg.stage1} />
+                        <Stage1 responses={msg.stage1} onUserReading={markUserReading} />
                       </section>
                     )}
 
@@ -367,6 +331,7 @@ export default function ChatInterface({
                           rankings={msg.stage2}
                           labelToModel={msg.metadata?.label_to_model}
                           aggregateRankings={msg.metadata?.aggregate_rankings}
+                          onUserReading={markUserReading}
                         />
                       </section>
                     )}

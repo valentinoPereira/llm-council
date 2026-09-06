@@ -14,7 +14,7 @@ function deAnonymizeText(text, labelToModel) {
   return result;
 }
 
-export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
+export default function Stage2({ rankings, labelToModel, aggregateRankings, onUserReading }) {
   if (!rankings || rankings.length === 0) {
     return null;
   }
@@ -39,7 +39,11 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings }) {
         were conducted blind.
       </p>
 
-      <Tabs.Root defaultValue="tab-0" orientation="horizontal">
+      <Tabs.Root
+        defaultValue="tab-0"
+        orientation="horizontal"
+        onValueChange={onUserReading}
+      >
         <Tabs.List className="tabs">
           {rankings.map((rank, index) => (
             <Tabs.Trigger

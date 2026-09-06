@@ -6,6 +6,7 @@ import Markdown from './Markdown';
 import Stage1 from './Stage1';
 import Stage2 from './Stage2';
 import Stage3 from './Stage3';
+import StageNav from './StageNav';
 import './ChatInterface.css';
 
 /** Persists per-conversation scroll positions across unmount/remount cycles. */
@@ -111,6 +112,19 @@ function ConveningIndicator({ deliberationReady = false }) {
       </div>
     </div>
   );
+}
+
+/**
+ * Jump-nav sections for a given message — the question plus one entry per
+ * stage present on the message. Order matches the render order below.
+ */
+function getSections(msg, index) {
+  return [
+    { id: `question-${index}`, label: 'Question' },
+    msg.stage1 && { id: `stage-1-${index}`, numeral: 'I', label: 'Deliberation' },
+    msg.stage2 && { id: `stage-2-${index}`, numeral: 'II', label: 'Peer Review' },
+    msg.stage3 && { id: `stage-3-${index}`, numeral: 'III', label: 'Verdict' },
+  ].filter(Boolean);
 }
 
 /**
@@ -302,7 +316,11 @@ export default function ChatInterface({
             conversation.messages.map((msg, index) => (
               <div key={index} className="message-group">
                 {msg.role === 'user' ? (
-                  <div className="user-message">
+                  <div
+                    className="user-message question-anchor"
+                    id={`question-${index}`}
+                    tabIndex={-1}
+                  >
                     <div className="message-label">You</div>
                     <div className="message-content">
                       <div className="markdown-content">
@@ -320,17 +338,49 @@ export default function ChatInterface({
                     {/* Ceremonial progress while any stage is in flight */}
                     <CouncilProgress message={msg} />
 
-                    {msg.stage1 && <Stage1 responses={msg.stage1} />}
-
-                    {msg.stage2 && (
-                      <Stage2
-                        rankings={msg.stage2}
-                        labelToModel={msg.metadata?.label_to_model}
-                        aggregateRankings={msg.metadata?.aggregate_rankings}
-                      />
+                    {/* Sticky jump-nav between question and stage
+                        sections; hidden until more than one section
+                        exists. */}
+                    {getSections(msg, index).length > 1 && (
+                      <StageNav sections={getSections(msg, index)} />
                     )}
 
-                    {msg.stage3 && <Stage3 finalResponse={msg.stage3} />}
+                    {msg.stage1 && (
+                      <section
+                        id={`stage-1-${index}`}
+                        className="stage-anchor"
+                        tabIndex={-1}
+                        aria-label="Stage I — Deliberation"
+                      >
+                        <Stage1 responses={msg.stage1} />
+                      </section>
+                    )}
+
+                    {msg.stage2 && (
+                      <section
+                        id={`stage-2-${index}`}
+                        className="stage-anchor"
+                        tabIndex={-1}
+                        aria-label="Stage II — Peer Review"
+                      >
+                        <Stage2
+                          rankings={msg.stage2}
+                          labelToModel={msg.metadata?.label_to_model}
+                          aggregateRankings={msg.metadata?.aggregate_rankings}
+                        />
+                      </section>
+                    )}
+
+                    {msg.stage3 && (
+                      <section
+                        id={`stage-3-${index}`}
+                        className="stage-anchor"
+                        tabIndex={-1}
+                        aria-label="Stage III — Synthesis"
+                      >
+                        <Stage3 finalResponse={msg.stage3} />
+                      </section>
+                    )}
 
                     {msg.stage3 && (
                       <div className="deliberation-closed">

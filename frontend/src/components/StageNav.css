@@ -30,6 +30,7 @@
 }
 
 .stage-nav-button {
+  position: relative;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -99,6 +100,62 @@
     top: 0;
     border-radius: 0;
     background: color-mix(in oklch, var(--bg-panel) 96%, transparent);
+  }
+}
+
+/* ── "Just arrived" signal ────────────────────────────────────────────────
+ * Runs are live: later stages mount while the user reads earlier ones. A
+ * stage that arrived mid-run pulses three times (~6s total, attention
+ * nudge) and keeps
+ * a corner dot until the reader reaches it (auto-cleared by scrollspy or on
+ * click). Stage I never pulses (baselined at mount). Both are paint-only:
+ * the dot is absolutely positioned (no sibling layout) and the pulse
+ * animates box-shadow/opacity only — no width/height/padding changes, so no
+ * layout shift or forced reflow.
+ */
+
+.stage-nav-button.is-new {
+  animation: stage-nav-pulse 2s ease-out 3;
+}
+
+.stage-nav-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--gold-line);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--bg-panel) 80%, transparent);
+}
+
+@keyframes stage-nav-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--gold-line) 55%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 9px transparent;
+  }
+}
+
+/* Dot bursts once with the pulse, then sits quietly until cleared. */
+.stage-nav-button.is-new .stage-nav-dot {
+  animation: stage-nav-dot-pop 2s ease-out;
+}
+
+@keyframes stage-nav-dot-pop {
+  0% {
+    transform: scale(1.6);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage-nav-button.is-new,
+  .stage-nav-button.is-new .stage-nav-dot {
+    animation: none;
   }
 }
 

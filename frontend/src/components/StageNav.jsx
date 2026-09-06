@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import './StageNav.css';
 
 /**
@@ -12,10 +12,51 @@ import './StageNav.css';
  */
 export default function StageNav({ sections }) {
   const [activeId, setActiveId] = useState(null);
+  // Sections that arrived after this nav mounted (the run is live and a
+  // later stage just finished) — they get the pulse + dot until seen.
+  const [newIds, setNewIds] = useState(() => new Set());
 
   // sections is rebuilt on every render of ChatInterface; observer setup
   // only depends on the ids, so key the effect off the joined id list.
   const idKey = sections.map((s) => s.id).join('|');
+  const prevIdsRef = useRef(null);
+
+  // Arrival detection: the first run baselines the ids already present at
+  // mount (Question + Stage I, since this nav only mounts once a second
+  // section exists) so nothing pulses on load. Every later run diffs new ids
+  // against what was rendered before — sections that appear mid-run (the
+  // user is reading earlier stages) are the ones that pulse.
+  useEffect(() => {
+    const ids = new Set(idKey ? idKey.split('|') : []);
+    if (prevIdsRef.current == null) {
+      prevIdsRef.current = ids;
+      return;
+    }
+    const prev = prevIdsRef.current;
+    const arrived = [...ids].filter((id) => !prev.has(id));
+    if (arrived.length > 0) {
+      setNewIds((cur) => {
+        const next = new Set(cur);
+        arrived.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+    prevIdsRef.current = ids;
+  }, [idKey]);
+
+  // Auto-clear: once a just-arrived section scrolls into view (scrollspy
+  // marks it current), it's been seen — drop its dot/pulse.
+  useEffect(() => {
+    if (!activeId || newIds.size === 0) return;
+    if (newIds.has(activeId)) {
+      setNewIds((cur) => {
+        if (!cur.has(activeId)) return cur;
+        const next = new Set(cur);
+        next.delete(activeId);
+        return next;
+      });
+    }
+  }, [activeId, newIds]);
 
   useEffect(() => {
     const ids = idKey ? idKey.split('|') : [];
@@ -51,6 +92,13 @@ export default function StageNav({ sections }) {
     if (el && el.getAttribute('tabindex') === '-1') {
       el.focus({ preventScroll: true });
     }
+    // Clicking a just-arrived section means it's been seen — clear the dot.
+    setNewIds((cur) => {
+      if (!cur.has(id)) return cur;
+      const next = new Set(cur);
+      next.delete(id);
+      return next;
+    });
   };
 
   if (sections.length === 0) {
@@ -61,11 +109,12 @@ export default function StageNav({ sections }) {
     <nav className="stage-nav" aria-label="Council sections">
       {sections.map((section) => {
         const isActive = activeId === section.id;
+        const isNew = newIds.has(section.id);
         return (
           <button
             key={section.id}
             type="button"
-            className="stage-nav-button"
+            className={`stage-nav-button${isNew ? ' is-new' : ''}`}
             aria-current={isActive ? 'true' : undefined}
             onClick={() => jumpTo(section.id)}
           >
@@ -75,6 +124,9 @@ export default function StageNav({ sections }) {
               </span>
             )}
             {section.label}
+            {isNew && (
+              <span className="stage-nav-dot" aria-hidden="true" />
+            )}
           </button>
         );
       })}

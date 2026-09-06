@@ -13,6 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from . import jobs, storage
 from .config import USE_SIMULATED_MODELS
+from .neuralwatt import close_client as close_neuralwatt_client
 from .openrouter import close_client, get_client
 
 
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         await close_client()
+        await close_neuralwatt_client()
         await storage.close_db()
 
 

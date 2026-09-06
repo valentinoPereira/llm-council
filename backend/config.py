@@ -8,6 +8,13 @@ load_dotenv()
 # OpenRouter API key
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
+# NeuralWatt API key — used only by the Chairman model (stage 3), which is
+# called directly via the OpenAI SDK instead of through OpenRouter.
+NEURALWATT_API_KEY = os.getenv("NEURALWATT_API_KEY")
+NEURALWATT_BASE_URL = os.getenv(
+    "NEURALWATT_BASE_URL", "https://api.neuralwatt.com/v1"
+)
+
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
     "moonshotai/kimi-k3",
@@ -16,17 +23,15 @@ COUNCIL_MODELS = [
     "anthropic/claude-opus-5",
 ]
 
-# Chairman model - synthesizes final response
-CHAIRMAN_MODEL = "z-ai/glm-5.3"
+# Chairman model — synthesizes final response. Runs on NeuralWatt
+# (OpenAI-compatible API) with model id "glm-5.3". There is no fallback
+# model: if NeuralWatt fails or times out, stage 3 degrades gracefully.
+CHAIRMAN_MODEL = "glm-5.3"
 
 # Hard timeout for the chairman stage (in seconds). A single-provider
 # reasoning model can stall despite SDK timeouts, so we enforce an app-level
-# ceiling that triggers a failover.
+# wall-clock ceiling on the single chairman attempt.
 CHAIRMAN_TIMEOUT_S = 180.0
-
-# Fallback chairman if the primary times out or fails. Grok has multiple
-# providers on OpenRouter, making it a good vice-chairman.
-CHAIRMAN_FALLBACK_MODEL = "x-ai/grok-4.6"
 
 # Interval at which the SSE stream reports stage progress so the UI can show
 # live elapsed time and detect long-running stages.

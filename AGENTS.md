@@ -25,8 +25,8 @@ The entire flow is async/parallel where possible to minimize latency.
 ## Hard rules (always apply)
 
 - Backend runs on **port 8001** — NOT 8000 (user has another app on 8000). Frontend dev server: port 5173. If ports change, update both `backend/main.py` and `frontend/src/api.js`.
-- Model access goes **only** through `backend/openrouter.py`. The 3-stage pipeline lives **only** in `backend/council.py`. Storage logic lives **only** in `backend/storage.py`. Model identifiers live **only** in `backend/config.py`. FastAPI endpoints live in `backend/main.py` and must not re-implement stage logic.
-- One conversation = one OpenRouter session; the deterministic session id (`llm-council-<conversation_id>`) must be passed to every model call in that conversation.
+- Model access goes **only** through provider adapter modules: `backend/openrouter.py` (OpenRouter, stages 1–2 and titles) and `backend/neuralwatt.py` (chairman, stage 3). Both adapters expose `query_model` with an identical response contract. The 3-stage pipeline lives **only** in `backend/council.py`. Storage logic lives **only** in `backend/storage.py`. Model identifiers live **only** in `backend/config.py`. FastAPI endpoints live in `backend/main.py` and must not re-implement stage logic.
+- One conversation = one OpenRouter session; the deterministic session id (`llm-council-<conversation_id>`) must be passed to every **OpenRouter** model call in that conversation (stages 1–2 and title generation). The chairman leg (stage 3, NeuralWatt) is not given this id.
 - A single model failure must never abort the pipeline — continue with the responses that succeeded.
 - Stage 2 must always anonymize responses ("Response A", "Response B", ...) before sending them to models. De-anonymization happens client-side for display only.
 - All backend modules use relative imports (`from .config import ...`), never absolute imports.

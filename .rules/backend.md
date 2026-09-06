@@ -13,12 +13,15 @@
 ## Pipeline semantics
 
 - Stage 1 and Stage 2 fan out model calls in parallel (`asyncio.gather()` via `query_models_parallel()`); do not run them sequentially.
-- Stage 3 (chairman synthesis) receives full context: original query, all Stage 1 responses, and all Stage 2 evaluations/rankings. The chairman runs under an app-level timeout with a fallback model (`CHAIRMAN_TIMEOUT_S`, `CHAIRMAN_FALLBACK_MODEL` in `config.py`).
+- Stage 3 (chairman synthesis) receives full context: original query, all Stage 1 responses, and all Stage 2 evaluations/rankings.
 - The backend builds and returns the `label_to_model` mapping for Stage 2 anonymization.
 
-## Chairman failover
+## Chairman (stage 3)
 
-- Stage 3 runs under an app-level timeout (`CHAIRMAN_TIMEOUT_S` in `config.py`). On timeout or failure it retries once with `CHAIRMAN_FALLBACK_MODEL` and marks the result with `fallback: true`; if both fail, it returns a graceful error result instead of aborting.
+- The chairman model is `glm-5.3` on NeuralWatt (OpenAI-compatible API, OpenAI SDK), called via `backend/neuralwatt.py` under the app-level timeout `CHAIRMAN_TIMEOUT_S`. There is **no fallback model** — the previous OpenRouter `x-ai/grok-4.6` vice-chairman was removed permanently.
+- On timeout or failure the stage returns a graceful error result (`response: null` + `error` message); stages 1–2 results and rankings still persist.
+- The NeuralWatt client is closed by the FastAPI lifespan alongside the OpenRouter client.
+- The OpenRouter `session_id` is **not** sent on the chairman leg (NeuralWatt has no session concept).
 
 ## Error handling — graceful degradation
 
@@ -49,10 +52,11 @@
 
 ## Testing (mock injection)
 
-- Tests inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `openrouter.get_client()` — the SDK applies auth itself; the injected client only supplies the transport. Follow the pattern in `tests/test_pipeline.py` for new model-call tests.
+- OpenRouter calls: inject a mock via `OpenRouter(async_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `openrouter.get_client()` — the SDK applies auth itself; the injected client only supplies the transport.
+- NeuralWatt calls: inject a mock via `AsyncOpenAI(base_url=..., api_key="test", http_client=httpx.AsyncClient(transport=httpx.MockTransport(...)))` and patch `neuralwatt.get_client()` (see `tests/test_neuralwatt.py`). Follow the pattern in `tests/test_pipeline.py` for new model-call tests.
 
 ## OpenRouter sessions
 
 - One conversation = one OpenRouter session (grouping + sticky routing in the console): `main.openrouter_session_id(conversation_id)` builds a deterministic id `llm-council-<conversation_id>` (max 256 chars per OpenRouter limit), derived purely from the conversation id so it never changes mid-conversation.
-- The same session id must be passed to **every** model call in the conversation — stages 1–3 and title generation, on both the REST and streaming endpoints. The SDK accepts it as `session_id=` on `chat.send_async()`.
+- The same session id must be passed to **every** OpenRouter model call in the conversation — stages 1–2 and title generation, on both the REST and streaming endpoints. The SDK accepts it as `session_id=` on `chat.send_async()`. The chairman (stage 3) goes through NeuralWatt and is **not** given the OpenRouter session id.
 - Sessions are routing/observability only — OpenRouter does NOT store conversation memory; full message history must still be sent per request.

@@ -96,9 +96,54 @@ def make_router(stage1_delay: float = 0.0, captured: Dict | None = None):
     return handler
 
 
+def make_neuralwatt_router():
+    """Mock NeuralWatt router serving the stage-3 chairman synthesis."""
+    async def handler(request: httpx.Request) -> httpx.Response:
+        body = request.read()
+        data = json.loads(body)
+        return httpx.Response(200, json={
+            "id": "mock-neuralwatt-completion",
+            "object": "chat.completion",
+            "created": 0,
+            "model": data["model"],
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": "Final synthesis from chairman."},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        })
+
+    return handler
+
+
+# Lazily-created shared NeuralWatt mock client (created on first use, closed
+# at the end of main). The chairman leg goes through NeuralWatt now, not
+# OpenRouter, so every blocking block must also patch neuralwatt.get_client.
+_NW_HTTP = None
+_NW_CLIENT = None
+
+
+def _nw_client():
+    global _NW_HTTP, _NW_CLIENT
+    if _NW_CLIENT is None:
+        from openai import AsyncOpenAI
+        _NW_HTTP = httpx.AsyncClient(
+            transport=httpx.MockTransport(make_neuralwatt_router()), timeout=10.0
+        )
+        _NW_CLIENT = AsyncOpenAI(
+            base_url="https://api.neuralwatt.com/v1",
+            api_key="test",
+            http_client=_NW_HTTP,
+            max_retries=0,
+        )
+    return _NW_CLIENT
+
+
 def _install(handler):
-    """Patch openrouter.get_client() to use the given mock handler."""
+    """Patch openrouter.get_client() + neuralwatt.get_client() with mocks."""
     from backend import openrouter as orouter
+    from backend import neuralwatt
     orig = orouter.get_client
     mock_http = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), timeout=10.0
@@ -106,7 +151,19 @@ def _install(handler):
     from openrouter import OpenRouter
     mock_sdk = OpenRouter(api_key="test-key", async_client=mock_http)
     orouter.get_client = lambda: mock_sdk
+    neuralwatt.get_client = _nw_client
     return orig, mock_http
+
+
+async def _close_nw():
+    """Close the shared NeuralWatt mock client (idempotent)."""
+    global _NW_HTTP, _NW_CLIENT
+    if _NW_HTTP is not None:
+        try:
+            await _NW_HTTP.aclose()
+        finally:
+            _NW_HTTP = None
+            _NW_CLIENT = None
 
 
 async def _read_sse(client, url):
@@ -288,6 +345,7 @@ async def main() -> int:
     finally:
         sys.modules.get("backend.openrouter").get_client = orig4
         await mock_http4.aclose()
+        await _close_nw()
         try:
             await backend.storage.close_db()
         except Exception:

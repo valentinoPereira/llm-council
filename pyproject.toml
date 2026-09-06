@@ -13,6 +13,7 @@ dependencies = [
     "openrouter>=1.1.71",
     "aiosqlite>=0.22.1",
     "sse-starlette>=2.0.0",
+    "openai>=1.99",
 ]
 
 [dependency-groups]

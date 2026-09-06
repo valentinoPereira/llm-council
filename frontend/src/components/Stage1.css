@@ -1,4 +1,4 @@
-/* Shared stage styling is duplicated here for Stage 1's grid layout; the
+/* Shared stage styling is duplicated here for Stage 1's tabbed layout; the
    header/numeral/title treatment matches Stage2/Stage3. */
 
 .stage {
@@ -53,13 +53,58 @@
   }
 }
 
-/* ── Side-by-side comparison grid ─────────────────────────────────────────── */
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
 
-.stage1-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
-  gap: 16px;
-  align-items: start;
+.stage1 {
+  .tabs {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .tab {
+    padding: 8px 12px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font-body);
+    font-weight: 500;
+    transition:
+      color var(--transition-fast),
+      border-bottom-color var(--transition-fast);
+
+    &:hover { color: var(--text-primary); }
+
+    &[data-state="active"] {
+      color: var(--accent-text);
+      border-bottom-color: var(--gold-line);
+      font-weight: 600;
+    }
+  }
+
+  .duration-badge {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+
+  .tab[data-state="active"] .duration-badge {
+    color: var(--accent-text);
+  }
+
+  .tab-content {
+    padding: 16px 4px 4px;
+    margin-bottom: 16px;
+  }
 }
 
 .response-card {

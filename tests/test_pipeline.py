@@ -15,6 +15,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 SANDBOX = tempfile.mkdtemp(prefix="llmc-pipe-")
 os.environ["OPENROUTER_API_KEY"] = "test-key"
+# Tests drive real model calls through mocked HTTP, so the .env's simulated
+# mode must be overridden here (and a short sim delay used) — otherwise this
+# sandbox inherits USE_SIMULATED_MODELS=true / a slow delay and bypasses the
+# mocks. Set before backend.config is imported (it reads env variables once).
+os.environ["USE_SIMULATED_MODELS"] = "false"
+os.environ["SIMULATED_MODEL_DELAY_S"] = "1"
 
 import importlib
 import backend.config as cfg
@@ -359,8 +365,8 @@ async def main() -> int:
             # heartbeat interval so we get a progress tick before failover.
             original_timeout = backend.council.CHAIRMAN_TIMEOUT_S
             backend.council.CHAIRMAN_TIMEOUT_S = 0.3
-            original_heartbeat = backend.main.STAGE_HEARTBEAT_S
-            backend.main.STAGE_HEARTBEAT_S = 0.1
+            original_heartbeat = backend.jobs.STAGE_HEARTBEAT_S
+            backend.jobs.STAGE_HEARTBEAT_S = 0.1
             try:
                 transport2 = httpx.MockTransport(make_failover_router())
                 mock_http2 = httpx.AsyncClient(transport=transport2, timeout=10.0)
@@ -435,7 +441,7 @@ async def main() -> int:
                     await mock_http2.aclose()
             finally:
                 backend.council.CHAIRMAN_TIMEOUT_S = original_timeout
-                backend.main.STAGE_HEARTBEAT_S = original_heartbeat
+                backend.jobs.STAGE_HEARTBEAT_S = original_heartbeat
 
     finally:
         orouter.get_client = original_get_client

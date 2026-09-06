@@ -18,6 +18,22 @@ function isUserFocused() {
 let navigateCallback = null;
 
 /**
+ * Tracks which conversation the user is currently viewing. notifyChairmanDone
+ * suppresses the notification only while the user is actively watching the
+ * completing chat — switching to a *different* conversation (same window,
+ * still focused) should still notify, since they aren't looking at this run.
+ */
+let activeConversationId = null;
+
+/**
+ * Register the currently-viewed conversation id (or `null` when none).
+ * Called from the router layer on navigation.
+ */
+export function setActiveConversation(conversationId) {
+  activeConversationId = conversationId ?? null;
+}
+
+/**
  * Allows the React Router layer to register a navigation function so that
  * clicking a notification uses an in-app route change instead of a full page
  * reload. Pass `null` to unregister (e.g. on app unmount).
@@ -63,7 +79,12 @@ export function notifyChairmanDone({
 } = {}) {
   if (!isSupported()) return;
   if (Notification.permission !== 'granted') return;
-  if (isUserFocused()) return;
+  // Suppress only while the user is both focused AND viewing this exact
+  // conversation (they're watching it live). If they're on a different chat,
+  // or the window isn't focused, notify.
+  const viewingThisChat =
+    !!conversationId && conversationId === activeConversationId;
+  if (isUserFocused() && viewingThisChat) return;
 
   const title = hasError
     ? 'The Council hit an issue'

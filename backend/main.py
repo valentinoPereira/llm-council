@@ -2,26 +2,17 @@
 
 import asyncio
 import json
-import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Coroutine, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from . import storage
-from .council import (
-    calculate_aggregate_rankings,
-    generate_conversation_metadata,
-    run_full_council,
-    stage1_collect_responses,
-    stage2_collect_rankings,
-    stage3_synthesize_final,
-)
-from .config import STAGE_HEARTBEAT_S, USE_SIMULATED_MODELS
+from . import jobs, storage
+from .config import USE_SIMULATED_MODELS
 from .openrouter import close_client, get_client
 
 
@@ -30,6 +21,9 @@ async def lifespan(app: FastAPI):
     # Open the SQLite database and ensure the schema exists before serving
     # any request.
     await storage.init_db()
+    # A fresh backend process has no jobs, so any 'pending' assistant row at
+    # startup is an orphan from a crash/restart — flip it to an error state.
+    await storage.fail_orphan_pending_messages()
     # Eagerly initialize the shared httpx client so the first request doesn't
     # pay the connection-pool setup cost. Skip this in simulated mode so no
     # OpenRouter API key is required for local UI testing.
@@ -71,54 +65,6 @@ def openrouter_session_id(conversation_id: str) -> str:
     """
     return f"llm-council-{conversation_id}"[:OPENROUTER_SESSION_ID_MAX]
 
-
-async def _await_with_progress(
-    label: str,
-    coro: Coroutine,
-    heartbeat_s: float | None = None,
-):
-    """Run a stage coroutine and emit heartbeat ticks until it finishes.
-
-    Yields ``stage_progress`` events while the coroutine runs, then a single
-    ``stage_done`` event carrying the result. The final event is consumed by
-    the caller; only progress events are forwarded to the client.
-
-    The task is shielded so that a client disconnect doesn't propagate
-    CancelledError into the stage logic unless the stage itself yields or
-    decides to stop.
-    """
-    interval = heartbeat_s if heartbeat_s is not None else STAGE_HEARTBEAT_S
-    start = time.perf_counter()
-    task = asyncio.ensure_future(coro)
-    try:
-        while True:
-            done, pending = await asyncio.wait(
-                {task}, timeout=interval, return_when=asyncio.FIRST_COMPLETED
-            )
-            if task in done:
-                yield {
-                    "data": json.dumps(
-                        {
-                            "type": "stage_done",
-                            "stage": label,
-                            "result": task.result(),
-                        }
-                    )
-                }
-                return
-            elapsed = time.perf_counter() - start
-            yield {
-                "data": json.dumps(
-                    {"type": "stage_progress", "stage": label, "elapsed_s": round(elapsed, 1)}
-                )
-            }
-    finally:
-        if not task.done():
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
 
 class CreateConversationRequest(BaseModel):
     """Request to create a new conversation."""
@@ -183,88 +129,75 @@ async def delete_conversation(conversation_id: str):
     deleted = await storage.delete_conversation(conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    # Stop any live run for the deleted conversation so it exits cleanly
+    # (its task's finally handles terminal-state cleanup).
+    jobs.cancel_and_remove(conversation_id)
 
 
 @app.post("/api/conversations/{conversation_id}/message")
 async def send_message(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and run the 3-stage council process.
+    Send a message and run the 3-stage council process (detached).
     Returns the complete response with all stages.
     """
-    # Check if conversation exists
     conversation = await storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    # Check if this is the first message
+    # Pre-flight the input-length guard into a clean HTTP 400.
+    if len(request.content) > storage.MAX_USER_MESSAGE_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Message content exceeds maximum length of "
+                f"{storage.MAX_USER_MESSAGE_LENGTH} characters"
+            ),
+        )
+
     is_first_message = len(conversation["messages"]) == 0
-
-    # Add user message (translates the input-length guard into a client error
-    # instead of a bare 500)
-    try:
-        await storage.add_user_message(conversation_id, request.content)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # One conversation = one OpenRouter session, across all model calls
-    # (stages 1-3 and title generation).
     session_id = openrouter_session_id(conversation_id)
-
-    # Start title generation in parallel with the council run, mirroring the
-    # streaming endpoint's pattern.
-    title_task: asyncio.Task[Tuple[str, str]] | None = None
-    if is_first_message:
-        title_task = asyncio.create_task(
-            generate_conversation_metadata(request.content, session_id=session_id)
-        )
-
     try:
-        # Run the 3-stage council process
-        stage1_results, stage2_results, stage3_result, metadata = await run_full_council(
-            request.content, session_id=session_id
+        job = await jobs.start_run(
+            conversation_id, request.content, session_id, is_first_message
         )
-    except BaseException:
-        # Don't leak the background title task if the council run fails.
-        if title_task is not None:
-            title_task.cancel()
-        raise
+    except ValueError as e:  # over-length from add_user_message
+        raise HTTPException(status_code=400, detail=str(e))
+    except jobs.RunAlreadyActive:
+        raise HTTPException(
+            status_code=409,
+            detail="A council run is already in progress for this conversation",
+        )
 
-    # Add assistant message with all stages
-    await storage.add_assistant_message(
-        conversation_id,
-        stage1_results,
-        stage2_results,
-        stage3_result,
-        metadata,
-    )
+    await job.task  # do not swallow CancelledError; re-raise it
 
-    # Persist the title if it was being generated.
-    if title_task is not None:
-        title, category = await title_task
-        await storage.update_conversation_title(conversation_id, title, category)
-
-    # Return the complete response with metadata
+    # Read the freshly-persisted assistant row (matches what the job wrote).
+    conversation = await storage.get_conversation(conversation_id)
+    if conversation is None:
+        # The conversation was deleted while we were awaiting — mirror the
+        # 404 from the initial check instead of crashing on None.
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    last = conversation["messages"][-1]
     return {
-        "stage1": stage1_results,
-        "stage2": stage2_results,
-        "stage3": stage3_result,
-        "metadata": metadata,
+        "stage1": last["stage1"],
+        "stage2": last["stage2"],
+        "stage3": last["stage3"],
+        "metadata": last["metadata"],
     }
 
 
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, request: SendMessageRequest):
     """
-    Send a message and stream the 3-stage council process.
-    Returns Server-Sent Events as each stage completes.
+    Start a detached council run and stream it as Server-Sent Events.
+
+    The run's lifetime is owned by the backend (``jobs.start_run`` spins up
+    ``job.task`` before the response starts), so a client disconnect only
+    closes this subscription — the run survives and persists to SQLite. This
+    endpoint contains no stage logic; it never touches council.py.
     """
-    # Check if conversation exists
     conversation = await storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-
-    # Check if this is the first message
-    is_first_message = len(conversation["messages"]) == 0
 
     # Pre-flight the input-length guard so oversized messages get a proper
     # HTTP 400 (matching the non-streaming endpoint) instead of an SSE error
@@ -278,111 +211,52 @@ async def send_message_stream(conversation_id: str, request: SendMessageRequest)
             ),
         )
 
-    async def event_generator():
-        # One conversation = one OpenRouter session, across all model calls
-        # (stages 1-3 and title generation).
-        session_id = openrouter_session_id(conversation_id)
-        title_task: asyncio.Task[Tuple[str, str]] | None = None
-        try:
-            # Add user message
-            await storage.add_user_message(conversation_id, request.content)
+    is_first_message = len(conversation["messages"]) == 0
+    session_id = openrouter_session_id(conversation_id)
+    try:
+        job = await jobs.start_run(
+            conversation_id, request.content, session_id, is_first_message
+        )
+    except ValueError as e:  # over-length from add_user_message
+        raise HTTPException(status_code=400, detail=str(e))
+    except jobs.RunAlreadyActive:
+        raise HTTPException(
+            status_code=409,
+            detail="A council run is already in progress for this conversation",
+        )
 
-            # Start title generation in parallel (don't await yet)
-            if is_first_message:
-                title_task = asyncio.create_task(
-                    generate_conversation_metadata(request.content, session_id=session_id)
-                )
+    # The stage coroutines live in job.task (created by create_task before
+    # the response starts), so a client disconnect only closes this
+    # subscription generator — the run survives.
+    return EventSourceResponse(job.subscribe(), ping=15)
 
-            # Stage 1: Collect responses
-            yield {"data": json.dumps({"type": "stage1_start"})}
-            stage1_results = None
-            async for item in _await_with_progress(
-                "stage1",
-                stage1_collect_responses(request.content, session_id=session_id),
-            ):
-                _payload = json.loads(item["data"])
-                if _payload.get("type") == "stage_done":
-                    stage1_results = _payload["result"]
-                else:
-                    yield item
-            yield {"data": json.dumps({"type": "stage1_complete", "data": stage1_results})}
 
-            # Stage 2: Collect rankings
-            yield {"data": json.dumps({"type": "stage2_start"})}
-            stage2_raw = None
-            async for item in _await_with_progress(
-                "stage2",
-                stage2_collect_rankings(
-                    request.content, stage1_results, session_id=session_id
-                ),
-            ):
-                _payload = json.loads(item["data"])
-                if _payload.get("type") == "stage_done":
-                    stage2_raw = _payload["result"]
-                else:
-                    yield item
-            stage2_results, label_to_model = stage2_raw
-            aggregate_rankings = calculate_aggregate_rankings(stage2_results, label_to_model)
-            yield {"data": json.dumps({"type": "stage2_complete", "data": stage2_results, "metadata": {"label_to_model": label_to_model, "aggregate_rankings": aggregate_rankings}})}
+@app.get("/api/conversations/{conversation_id}/run/events")
+async def run_events(conversation_id: str):
+    """Attach/reattach to a conversation's run event stream.
 
-            # Stage 3: Synthesize final answer (primary chairman + failover)
-            yield {"data": json.dumps({"type": "stage3_start"})}
-            stage3_result = None
-            async for item in _await_with_progress(
-                "stage3",
-                stage3_synthesize_final(
-                    request.content, stage1_results, stage2_results, session_id=session_id
-                ),
-            ):
-                _payload = json.loads(item["data"])
-                if _payload.get("type") == "stage_done":
-                    stage3_result = _payload["result"]
-                else:
-                    yield item
-            yield {"data": json.dumps({"type": "stage3_complete", "data": stage3_result})}
+    If a job exists (live *or* finished), replay its entire event log, then
+    tail live events, closing after ``complete``/``error`` is yielded. If no
+    job exists, send a single ``run_inactive`` event and close. (The orphan
+    sweeper at startup makes stale pending rows resolve to ``error``.)
+    """
+    job = jobs.get_job(conversation_id)
+    if job is not None:
+        return EventSourceResponse(job.subscribe(), ping=15)
 
-            # Wait for title generation if it was started
-            if title_task:
-                title, category = await title_task
-                await storage.update_conversation_title(conversation_id, title, category)
-                yield {"data": json.dumps({"type": "title_complete", "data": {"title": title, "category": category}})}
+    async def inactive_generator():
+        yield {"data": json.dumps({"type": "run_inactive"})}
 
-            # Save complete assistant message
-            await storage.add_assistant_message(
-                conversation_id,
-                stage1_results,
-                stage2_results,
-                stage3_result,
-                {"label_to_model": label_to_model, "aggregate_rankings": aggregate_rankings},
-            )
+    return EventSourceResponse(inactive_generator(), ping=15)
 
-            # Send completion event
-            yield {"data": json.dumps({"type": "complete"})}
 
-        except Exception as e:
-            # Don't leak the background title task on failure.
-            if title_task is not None:
-                title_task.cancel()
-            # Send error event
-            yield {"data": json.dumps({"type": "error", "message": str(e)})}
-        finally:
-            # Client disconnect cancels this generator with CancelledError /
-            # GeneratorExit (BaseException, not caught above) — make sure the
-            # title task never outlives the stream. Cancelling an
-            # already-finished task is a no-op.
-            if title_task is not None and not title_task.done():
-                title_task.cancel()
-
-    # EventSourceResponse serializes dict yields into spec-compliant SSE
-    # frames (`data: <json>\n\n`) and sets Content-Type
-    # (text/event-stream; charset=utf-8), Cache-Control, and Connection
-    # automatically — matching the previous manual headers and still
-    # accepted by the frontend's onopen Content-Type check. `ping=15`
-    # emits a keepalive comment (`: ping`) every 15 s so long-running
-    # stages don't trip proxy/browser timeouts (fetch-event-source ignores
-    # comment lines). It also surfaces client disconnects so the
-    # generator's finally block cancels the title task.
-    return EventSourceResponse(event_generator(), ping=15)
+@app.get("/api/conversations/{conversation_id}/run/status")
+async def run_status(conversation_id: str):
+    """Run-status metadata for a conversation (sidebar badge / debugging)."""
+    job = jobs.get_job(conversation_id)
+    if job is None:
+        return {"active": False, "done": False}
+    return {"active": not job.done, "done": job.done}
 
 
 if __name__ == "__main__":

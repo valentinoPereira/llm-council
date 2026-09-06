@@ -30,8 +30,27 @@ function getLiveHint(stepKey, elapsed) {
  * reports it running, and `pending` otherwise.
  */
 export default function CouncilProgress({ message }) {
-  const loading = message?.loading ?? {};
-  const inFlight = STEPS.some((s) => loading[s.key]);
+  let loading = message?.loading ?? {};
+  let inFlight = STEPS.some((s) => loading[s.key]);
+
+  // Reattach/refetch loading inference. A refetch of the persisted
+  // conversation (or a page reload) replaces the cached message with the raw
+  // DB shape, which has stages but NO client-side `loading` flags. Wiping
+  // them would make this progress view pop in and out on every refetch
+  // (the backend's stage_progress heartbeat re-adds them ~every 10s). So when
+  // `loading` is missing entirely, derive the in-flight stage from the
+  // persisted stages: stages fill forward, so the first null stage is the one
+  // still running. Only do this for a genuinely in-flight message — an
+  // errored message (which may also have null early stages) must never show
+  // as “in session”.
+  if (message && message.status === 'pending' && message.loading == null) {
+    const inferred = {};
+    if (message.stage1 == null) inferred.stage1 = true;
+    else if (message.stage2 == null) inferred.stage2 = true;
+    else if (message.stage3 == null) inferred.stage3 = true;
+    loading = inferred;
+    inFlight = STEPS.some((s) => inferred[s.key]);
+  }
 
   if (!inFlight) return null;
 

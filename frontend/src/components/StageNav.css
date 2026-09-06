@@ -1,0 +1,147 @@
+/* Section jump-nav.
+ *
+ * Narrow viewports: horizontal sticky bar along the top of the scrollport
+   while the council's answer is on screen.
+ *
+ * Wide viewports (≥1440px, where the 900px reading column leaves real
+   estate free on the right): a compact vertical rail pinned to the right
+   edge, vertically centered — the blank margin becomes navigation. */
+
+.stage-nav {
+  position: sticky;
+  top: 8px;
+  z-index: 6;
+  display: flex;
+  gap: 2px;
+  margin: 0 0 12px;
+  padding: 4px;
+  background: color-mix(in oklch, var(--bg-panel) 92%, transparent);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.stage-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.stage-nav-button {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
+
+  &:hover {
+    color: var(--text-primary);
+    background: color-mix(in oklch, var(--accent) 10%, transparent);
+  }
+
+  &[aria-current] {
+    color: var(--accent-text);
+    background: color-mix(in oklch, var(--gold-line) 14%, transparent);
+    font-weight: 600;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+  }
+}
+
+.stage-nav-numeral {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--gold-line);
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-text);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
+}
+
+/* Jump targets clear the nav when scrolled into view. */
+.stage-anchor,
+.question-anchor {
+  scroll-margin-top: 64px;
+}
+
+.question-anchor:focus {
+  outline: none;
+}
+
+@media (max-width: 900px) {
+  .stage-nav {
+    top: 0;
+    border-radius: 0;
+    background: color-mix(in oklch, var(--bg-panel) 96%, transparent);
+  }
+}
+
+/* ── Wide viewport: vertical rail on the right margin ──────────────────────
+ * Layout: 280px sidebar + 900px column. Free right margin =
+ * (viewport - 1180) / 2, which is ≥ ~130px from 1440px up — enough for a
+ * compact rail without overlapping the reading column. */
+
+@media (min-width: 1440px) {
+  .stage-nav {
+    position: fixed;
+    top: 50%;
+    right: 24px;
+    bottom: auto;
+    left: auto;
+    transform: translateY(-50%);
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 6px;
+    border-radius: 10px;
+    overflow: visible;
+    max-height: calc(100vh - 48px);
+  }
+
+  .stage-nav-button {
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .stage-nav-numeral {
+    width: 26px;
+    min-width: 26px;
+    height: 26px;
+    font-size: 12px;
+  }
+
+  .stage-nav-button[aria-current] .stage-nav-numeral {
+    background: color-mix(in oklch, var(--gold-line) 18%, transparent);
+  }
+}

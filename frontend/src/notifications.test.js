@@ -16,6 +16,7 @@ describe('notifications.js', () => {
 
   afterEach(() => {
     notifications.setNotificationNavigationCallback(null);
+    notifications.setActiveConversation(null);
     globals.resetLastNotification();
     uninstallBrowserGlobals();
   });
@@ -54,12 +55,27 @@ describe('notifications.js', () => {
       assert.equal(globals.getLastNotification(), null);
     });
 
-    it('does nothing if the user is focused', () => {
+    it('does nothing if the user is focused on the completing chat', () => {
       globals.FakeNotification.permission = 'granted';
       globals.fakeDocument._focused = true;
       globals.fakeDocument.visibilityState = 'visible';
+      notifications.setActiveConversation('abc');
       notifications.notifyChairmanDone({ conversationId: 'abc' });
       assert.equal(globals.getLastNotification(), null);
+    });
+
+    it('notifies when focused but viewing a DIFFERENT chat', () => {
+      globals.FakeNotification.permission = 'granted';
+      globals.fakeDocument._focused = true;
+      globals.fakeDocument.visibilityState = 'visible';
+      notifications.setActiveConversation('other-chat');
+      notifications.notifyChairmanDone({
+        conversationId: 'abc',
+        conversationTitle: 'My Question',
+      });
+      const notification = globals.getLastNotification();
+      assert.ok(notification);
+      assert.equal(notification.title, 'The Council has spoken');
     });
 
     it('shows a notification when the stage completes while the tab is hidden', () => {

@@ -141,6 +141,19 @@ def _row_to_message(row: aiosqlite.Row) -> Dict[str, Any]:
     metadata = _loads(row["metadata"])
     if metadata is not None:
         msg["metadata"] = metadata
+        # Run status travels inside the metadata JSON blob (no SQL columns).
+        # Legacy rows (no "status" key) and missing metadata resolve to a
+        # completed message; pending/error map to their explicit states.
+        status = metadata.get("status")
+        if status == "pending":
+            msg["status"] = "pending"
+        elif status == "error":
+            msg["status"] = "error"
+            msg["error"] = metadata.get("error")
+        else:
+            msg["status"] = "complete"
+    else:
+        msg["status"] = "complete"
     return msg
 
 
@@ -357,6 +370,113 @@ async def update_conversation_title(
     await db.commit()
     if cur.rowcount == 0:
         raise ValueError(f"Conversation {conversation_id} not found")
+
+
+async def create_pending_assistant_message(conversation_id: str) -> int:
+    """Insert an assistant message row before any stage completes.
+
+    The row starts with NULL stages and ``metadata = {"status": "pending"}``
+    so any client that fetches the conversation can discover an in-flight
+    run (stages fill in forward via :func:`update_assistant_message`).
+
+    Returns:
+        The new message row id (cursor.lastrowid).
+    """
+    db = await _get_db()
+    cur = await db.execute(
+        "INSERT INTO messages "
+        "(conversation_id, role, stage1, stage2, stage3, metadata, created_at) "
+        "VALUES (?, 'assistant', NULL, NULL, NULL, ?, ?)",
+        (conversation_id, json.dumps({"status": "pending"}), _utc_now_iso()),
+    )
+    await db.commit()
+    return int(cur.lastrowid)
+
+
+async def update_assistant_message(
+    message_id: int,
+    stage1: Optional[List] = None,
+    stage2: Optional[List] = None,
+    stage3: Optional[Dict] = None,
+    metadata: Optional[Dict] = None,
+) -> None:
+    """Update a subset of an assistant message's columns.
+
+    Each keyword arg is optional; only the columns that are NOT None are
+    included in the generated ``UPDATE`` statement, so None means "leave
+    alone" — never blanket-NULLs a column. Stages fill forward (NULL ->
+    value), which makes None-as-default safe.
+
+    ``metadata``, when provided, always overwrites the column wholesale; the
+    caller (jobs.py) does read-modify-write of accumulated metadata, so no
+    merge logic is needed here.
+
+    If the row no longer exists (e.g. the conversation was deleted mid-run)
+    the UPDATE simply affects 0 rows and this function does not raise.
+    """
+    sets: List[str] = []
+    values: List[Any] = []
+    if stage1 is not None:
+        sets.append("stage1 = ?")
+        values.append(json.dumps(stage1))
+    if stage2 is not None:
+        sets.append("stage2 = ?")
+        values.append(json.dumps(stage2))
+    if stage3 is not None:
+        sets.append("stage3 = ?")
+        values.append(json.dumps(stage3))
+    if metadata is not None:
+        sets.append("metadata = ?")
+        values.append(json.dumps(metadata))
+    if not sets:
+        return
+    values.append(message_id)
+    db = await _get_db()
+    await db.execute(
+        f"UPDATE messages SET {', '.join(sets)} WHERE id = ?",
+        values,
+    )
+    await db.commit()
+
+
+async def fail_orphan_pending_messages() -> int:
+    """Flip stale 'pending' assistant rows to an error state.
+
+    A fresh backend process has no live jobs, so any ``pending`` row at
+    startup is an orphan from a crash or restart: the in-memory event loop
+    that owned the run is gone. Rewrite those rows' metadata to
+    ``{"status": "error", "error": ...}`` while preserving any other keys
+    (e.g. ``label_to_model``).
+
+    Returns:
+        How many rows were fixed.
+
+    Fragility warning: the ``LIKE '"status": "pending"'`` literal must match
+    ``json.dumps`` default output exactly — default separators are ``", "``
+    and ``": "`` (with spaces).
+    """
+    db = await _get_db()
+    # The LIKE pattern mirrors json.dumps' default separators: `, ` and `: `.
+    cur = await db.execute(
+        "SELECT id, metadata FROM messages "
+        "WHERE metadata LIKE '%\"status\": \"pending\"%'"
+    )
+    rows = await cur.fetchall()
+    await cur.close()
+    fixed = 0
+    for row in rows:
+        try:
+            meta = json.loads(row["metadata"])
+        except (TypeError, ValueError):
+            continue
+        if not meta or meta.get("status") != "pending":
+            continue
+        new_meta = dict(meta)
+        new_meta["status"] = "error"
+        new_meta["error"] = "The council was interrupted."
+        await update_assistant_message(int(row["id"]), metadata=new_meta)
+        fixed += 1
+    return fixed
 
 
 async def delete_conversation(conversation_id: str) -> bool:

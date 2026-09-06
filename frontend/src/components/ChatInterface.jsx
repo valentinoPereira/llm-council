@@ -203,23 +203,52 @@ export default function ChatInterface({
   }, [conversation]);
 
   // If the URL carries the verdict anchor (from a notification click), scroll
-  // the Stage 3 section into view once it exists and clear the anchor so a
-  // later back/forward doesn't jump unexpectedly.
+  // the latest Stage 3 section into view and clear the anchor so a later
+  // back/forward doesn't jump unexpectedly.
+  //
+  // Retried (not gated on `conversation`) because the target may mount after
+  // this effect runs: the run can still report a pending tail when we
+  // navigate, with the terminal event arriving a moment later. Polling also
+  // targets the LAST `#council-verdict` — this run's verdict — rather than
+  // the first one in the DOM, which would be an older turn's.
   useEffect(() => {
     if (location.hash !== '#council-verdict') return;
 
-    const element = document.getElementById('council-verdict');
-    if (!element) return;
+    let cancelled = false;
+    let restoreTimer = null;
+    let attempts = 0;
 
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    element.focus({ preventScroll: true });
+    const tryScroll = () => {
+      if (cancelled) return;
+      const verdicts = document.querySelectorAll('#council-verdict');
+      const element = verdicts[verdicts.length - 1];
+      if (!element) {
+        // Not in the DOM yet (data still loading / run still completing).
+        // Back off and retry; give up after a few seconds so a stale hash
+        // doesn't spin forever.
+        if (attempts++ < 40) {
+          setTimeout(tryScroll, 100);
+        }
+        return;
+      }
 
-    const timeout = setTimeout(() => {
-      navigate(location.pathname + location.search, { replace: true });
-    }, 100);
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      element.focus({ preventScroll: true });
 
-    return () => clearTimeout(timeout);
-  }, [location.hash, location.pathname, location.search, navigate, conversation]);
+      // Clear the anchor so a later back/forward doesn't jump unexpectedly.
+      restoreTimer = setTimeout(() => {
+        if (!cancelled) {
+          navigate(location.pathname + location.search, { replace: true });
+        }
+      }, 200);
+    };
+
+    tryScroll();
+    return () => {
+      cancelled = true;
+      if (restoreTimer) clearTimeout(restoreTimer);
+    };
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   // Return focus to the composer when a run finishes (loading → idle).
   // Skipped on mount and on touch-sized screens to avoid popping the keyboard.

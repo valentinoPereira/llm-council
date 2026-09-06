@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { NavLink, useParams } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import CouncilMark from './CouncilMark';
 import ThemeToggle from './ThemeToggle';
 import { formatRelativeTime } from '../utils';
@@ -13,21 +13,48 @@ export default function Sidebar({
   isCreating = false,
   isDeleting = false,
 }) {
-  const { conversationId: activeId } = useParams();
+  // Active conversation id, derived from the URL. The sidebar is rendered as
+  // a sibling of <Routes>, so `useParams()` returns an empty object here (the
+  // matched route's params live in the route element's own context). Parse the
+  // path like App does — the active-row highlight (NavLink) matches against
+  // location independently, so it shows, but any param-driven scroll logic
+  // must derive the id from location too.
+  const location = useLocation();
+  const activeId = location.pathname.match(/^\/c\/([^/]+)$/)?.[1] ?? null;
   const listRef = useRef(null);
   const [isOpen, setIsOpen] = useState(false);
 
   // When the route changes (or after first paint), scroll the active
   // conversation item into view in the sidebar list.
+  //
+  // Polled rather than single-shot because on a notification-driven
+  // navigation the active id updates immediately but the target row can mount
+  // a beat later (list mid-refetch / new row not yet rendered). A one-shot
+  // querySelector misses it, and if the conversations ref doesn't change
+  // again the sidebar is left scrolled at an older chat.
   useEffect(() => {
     if (!listRef.current) return;
     if (!activeId) return;
-    const el = listRef.current.querySelector(
-      `[data-conversation-id="${CSS.escape(activeId)}"]`
-    );
-    if (el && typeof el.scrollIntoView === 'function') {
-      el.scrollIntoView({ block: 'nearest' });
-    }
+    let cancelled = false;
+    let attempts = 0;
+    const tryScroll = () => {
+      if (cancelled || !listRef.current) return;
+      const el = listRef.current.querySelector(
+        `[data-conversation-id="${CSS.escape(activeId)}"]`
+      );
+      if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'nearest' });
+        return; // done
+      }
+      // Not rendered yet — back off and retry; give up after a few seconds.
+      if (attempts++ < 40) {
+        setTimeout(tryScroll, 100);
+      }
+    };
+    tryScroll();
+    return () => {
+      cancelled = true;
+    };
   }, [activeId, conversations]);
 
   // Selecting a conversation on mobile closes the overlay sidebar.

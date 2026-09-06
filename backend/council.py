@@ -6,8 +6,8 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import neuralwatt
 from .config import (
-    CHAIRMAN_FALLBACK_MODEL,
     CHAIRMAN_MODEL,
     CHAIRMAN_TIMEOUT_S,
     CONVERSATION_CATEGORIES,
@@ -168,7 +168,8 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
-        session_id: OpenRouter session id (conversation grouping)
+        session_id: OpenRouter session id (conversation grouping; not sent to
+            NeuralWatt, which has no session concept)
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -203,41 +204,26 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model with a hard timeout. The SDK timeout applies per
-    # request/response lifecycle and can be beaten by providers that drip
-    # keepalive data slowly; wait_for enforces a wall-clock ceiling.
+    # Query the chairman model with a hard timeout. The SDK timeout applies
+    # per request/response lifecycle and can be beaten by providers that
+    # drip keepalive data slowly; wait_for enforces a wall-clock ceiling.
+    # There is no fallback model: on failure or timeout, stage 3 degrades
+    # gracefully below.
     start = time.perf_counter()
     primary_model = CHAIRMAN_MODEL
-    fallback_model = CHAIRMAN_FALLBACK_MODEL
     response = None
-    from_fallback = False
 
     try:
         response = await asyncio.wait_for(
-            query_model(primary_model, messages, stage="stage3", session_id=session_id),
+            neuralwatt.query_model(primary_model, messages, stage="stage3"),
             timeout=CHAIRMAN_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
         elapsed_s = round(time.perf_counter() - start, 1)
         print(
             f"[timing] stage=stage3 model={primary_model} elapsed={elapsed_s}s "
-            f"TIMEOUT after {CHAIRMAN_TIMEOUT_S}s -> failing over to {fallback_model}"
+            f"TIMEOUT after {CHAIRMAN_TIMEOUT_S}s"
         )
-
-    # Primary failed or timed out: promote the fallback vice-chairman.
-    if response is None:
-        from_fallback = True
-        try:
-            response = await asyncio.wait_for(
-                query_model(fallback_model, messages, stage="stage3", session_id=session_id),
-                timeout=CHAIRMAN_TIMEOUT_S,
-            )
-        except asyncio.TimeoutError:
-            elapsed_s = round(time.perf_counter() - start, 1)
-            print(
-                f"[timing] stage=stage3 model={fallback_model} elapsed={elapsed_s}s "
-                f"TIMEOUT after {CHAIRMAN_TIMEOUT_S}s"
-            )
 
     if response is None:
         total_elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -251,23 +237,19 @@ Provide a clear, well-reasoned final answer that represents the council's collec
             "duration_ms": total_elapsed_ms,
         }
 
-    delivering_model = fallback_model if from_fallback else primary_model
     elapsed_ms = response.get('duration_ms')
     total_elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
     if elapsed_ms is not None:
         print(
-            f"[timing] stage=stage3 model={delivering_model} "
+            f"[timing] stage=stage3 model={primary_model} "
             f"total={total_elapsed_ms}ms inference={elapsed_ms}ms"
         )
 
-    result = {
-        "model": delivering_model,
+    return {
+        "model": primary_model,
         "response": response.get('content', ''),
         "duration_ms": total_elapsed_ms,
     }
-    if from_fallback:
-        result["fallback"] = True
-    return result
 
 
 def parse_ranking_from_text(ranking_text: str) -> List[str]:

@@ -93,129 +93,36 @@ def make_router():
     return handler
 
 
-def make_failover_router():
-    """Mock router where the primary chairman hangs and the failover answers."""
-    import asyncio
+def make_neuralwatt_router(content: str = "Final synthesis from chairman."):
+    """Mock NeuralWatt router serving the stage-3 chairman synthesis.
 
+    NeuralWatt is only ever called for the chairman leg, so every request it
+    sees is a stage-3 chairman prompt. Returns an OpenAI-shaped completion.
+    """
     async def handler(request: httpx.Request) -> httpx.Response:
         body = request.read()
         data = json.loads(body)
-        model = data["model"]
-        user_msg = data["messages"][-1]["content"]
-
-        captured.setdefault(model, []).append({
-            "user_msg": user_msg,
-            "session_id": data.get("session_id"),
+        return httpx.Response(200, json={
+            "id": "mock-neuralwatt-completion",
+            "object": "chat.completion",
+            "created": 0,
+            "model": data["model"],
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         })
-
-        def completion(content: str) -> httpx.Response:
-            return httpx.Response(200, json={
-                "choices": [{
-                    "index": 0,
-                    "finish_reason": "stop",
-                    "message": {"role": "assistant", "content": content},
-                }],
-                "created": 0,
-                "id": "mock-completion",
-                "model": model,
-                "object": "chat.completion",
-                "system_fingerprint": "mock-fingerprint",
-            })
-
-        if "very short title" in user_msg.lower():
-            return completion("Failover Title")
-
-        if model == cfg.CHAIRMAN_MODEL:
-            # Hang past the test's 0.3s chairman timeout.
-            await asyncio.sleep(0.7)
-            return completion("this should not be reached")
-
-        if model == cfg.CHAIRMAN_FALLBACK_MODEL:
-            return completion("Vice-chair synthesis.")
-
-        if "FINAL RANKING:" in user_msg:
-            return completion(
-                "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"
-            )
-
-        if "Chairman" in user_msg:
-            # Any other chairman prompt should be answered (used by total-failure case).
-            return completion("Alternate chairman synthesis.")
-
-        return completion(f"Response from {model}.")
 
     return handler
 
 
-def make_total_failure_router():
-    """Mock router where both primary and fallback chairman hang."""
-    import asyncio
-
+def make_neuralwatt_error_router(status: int):
+    """Mock NeuralWatt router that always fails (used for the graceful-error test)."""
     async def handler(request: httpx.Request) -> httpx.Response:
-        body = request.read()
-        data = json.loads(body)
-        model = data["model"]
-        user_msg = data["messages"][-1]["content"]
-
-        captured.setdefault(model, []).append({
-            "user_msg": user_msg,
-            "session_id": data.get("session_id"),
-        })
-
-        if model in (cfg.CHAIRMAN_MODEL, cfg.CHAIRMAN_FALLBACK_MODEL):
-            await asyncio.sleep(0.7)
-            return httpx.Response(200, json={
-                "choices": [{
-                    "index": 0,
-                    "finish_reason": "stop",
-                    "message": {"role": "assistant", "content": "should not reach"},
-                }],
-                "created": 0,
-                "id": "mock-completion",
-                "model": model,
-                "object": "chat.completion",
-                "system_fingerprint": "mock-fingerprint",
-            })
-
-        if "very short title" in user_msg.lower():
-            return httpx.Response(200, json={
-                "choices": [{
-                    "index": 0,
-                    "finish_reason": "stop",
-                    "message": {"role": "assistant", "content": "Failure Title"},
-                }],
-                "created": 0,
-                "id": "mock-completion",
-                "model": model,
-                "object": "chat.completion",
-                "system_fingerprint": "mock-fingerprint",
-            })
-
-        if "FINAL RANKING:" in user_msg:
-            return httpx.Response(200, json={
-                "choices": [{
-                    "index": 0,
-                    "finish_reason": "stop",
-                    "message": {"role": "assistant", "content": "Response A is good.\n\nFINAL RANKING:\n1. Response A\n2. Response B\n3. Response C\n"},
-                }],
-                "created": 0,
-                "id": "mock-completion",
-                "model": model,
-                "object": "chat.completion",
-                "system_fingerprint": "mock-fingerprint",
-            })
-
-        return httpx.Response(200, json={
-            "choices": [{
-                "index": 0,
-                "finish_reason": "stop",
-                "message": {"role": "assistant", "content": f"Response from {model}."},
-            }],
-            "created": 0,
-            "id": "mock-completion",
-            "model": model,
-            "object": "chat.completion",
-            "system_fingerprint": "mock-fingerprint",
+        return httpx.Response(status, json={
+            "error": {"message": "upstream boom", "type": "server_error", "code": "error"},
         })
 
     return handler
@@ -234,6 +141,22 @@ async def main() -> int:
     from backend import openrouter as orouter
     original_get_client = orouter.get_client
     orouter.get_client = lambda: mock_sdk
+
+    # Stage 3 (chairman) now goes through NeuralWatt, not OpenRouter. Inject
+    # an OpenAI SDK client backed by a NeuralWatt mock transport.
+    from openai import AsyncOpenAI
+    from backend import neuralwatt
+    nw_http = httpx.AsyncClient(
+        transport=httpx.MockTransport(make_neuralwatt_router()), timeout=10.0
+    )
+    nw_client = AsyncOpenAI(
+        base_url="https://api.neuralwatt.com/v1",
+        api_key="test",
+        http_client=nw_http,
+        max_retries=0,
+    )
+    original_nw_get_client = neuralwatt.get_client
+    neuralwatt.get_client = lambda: nw_client
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
             # Create a conversation
@@ -360,92 +283,58 @@ async def main() -> int:
             print(f"OK  streaming requests used session_id={expected_sid2} "
                   f"({len(sid2_entries)} requests)")
 
-            # 15) Chairman timeout -> failover to Vice-Chairman.
-            # Speed up the test by shrinking the app-level timeout and the SSE
-            # heartbeat interval so we get a progress tick before failover.
-            original_timeout = backend.council.CHAIRMAN_TIMEOUT_S
-            backend.council.CHAIRMAN_TIMEOUT_S = 0.3
-            original_heartbeat = backend.jobs.STAGE_HEARTBEAT_S
-            backend.jobs.STAGE_HEARTBEAT_S = 0.1
+            # 15) Chairman (NeuralWatt) failure -> graceful error, NO
+            #     OpenRouter failover. Regression test proving the removed
+            #     vice-chairman failover is really gone: a NeuralWatt 500
+            #     must not fall through to any OpenRouter chairman call; the
+            #     run completes with a friendly error and stage1/2 persist.
+            fail_nw_http = httpx.AsyncClient(
+                transport=httpx.MockTransport(make_neuralwatt_error_router(500)),
+                timeout=10.0,
+            )
+            fail_nw_client = AsyncOpenAI(
+                base_url="https://api.neuralwatt.com/v1",
+                api_key="test",
+                http_client=fail_nw_http,
+                max_retries=0,
+            )
+            old_nw_gc = neuralwatt.get_client
+            neuralwatt.get_client = lambda: fail_nw_client
             try:
-                transport2 = httpx.MockTransport(make_failover_router())
-                mock_http2 = httpx.AsyncClient(transport=transport2, timeout=10.0)
-                mock_sdk2 = OpenRouter(api_key="test-key", async_client=mock_http2)
-                failover_get_client = orouter.get_client
-                orouter.get_client = lambda: mock_sdk2
-                try:
-                    r = await http.post("/api/conversations", json={})
-                    cid3 = r.json()["id"]
+                r = await http.post("/api/conversations", json={})
+                cid5 = r.json()["id"]
+                r = await http.post(
+                    f"/api/conversations/{cid5}/message/stream",
+                    json={"content": "NeuralWatt failure test"},
+                )
+                assert r.status_code == 200, r.text
+                body = b""
+                async for chunk in r.aiter_bytes():
+                    body += chunk
+                text = body.decode()
+                stage3_line = [
+                    line for line in text.splitlines()
+                    if '"stage3_complete"' in line and line.startswith("data:")
+                ][0]
+                stage3_data = json.loads(stage3_line.split(":", 1)[1].strip())
+                assert stage3_data["data"].get("error"), "expected error field in stage3 result"
+                assert stage3_data["data"]["response"] is None
+                assert stage3_data["data"]["model"] == cfg.CHAIRMAN_MODEL, stage3_data
 
-                    r = await http.post(
-                        f"/api/conversations/{cid3}/message/stream",
-                        json={"content": "Failover test"},
-                    )
-                    assert r.status_code == 200, r.text
-                    body = b""
-                    async for chunk in r.aiter_bytes():
-                        body += chunk
-                    text = body.decode()
-
-                    assert "stage3_complete" in text, "stage3_complete event missing"
-                    # Find the stage3_complete payload line.
-                    stage3_line = [
-                        line for line in text.splitlines()
-                        if '"stage3_complete"' in line and line.startswith("data:")
-                    ][0]
-                    stage3_data = json.loads(stage3_line.split(":", 1)[1].strip())
-                    assert stage3_data["data"]["model"] == cfg.CHAIRMAN_FALLBACK_MODEL, \
-                        f"expected failover to {cfg.CHAIRMAN_FALLBACK_MODEL}, got {stage3_data['data']['model']}"
-                    assert stage3_data["data"].get("fallback") is True, "fallback flag missing"
-                    assert "stage_progress" in text, "heartbeat missing for stage3"
-                    assert "complete" in text, "final complete event missing"
-                    print("OK  chairman timeout triggers failover to", cfg.CHAIRMAN_FALLBACK_MODEL)
-
-                    # Persisted assistant message carries the fallback result.
-                    conv = await http.get(f"/api/conversations/{cid3}")
-                    assert conv.status_code == 200, conv.text
-                    assistant = [m for m in conv.json()["messages"] if m["role"] == "assistant"][-1]
-                    assert assistant["stage3"]["model"] == cfg.CHAIRMAN_FALLBACK_MODEL
-                    assert assistant["stage3"].get("fallback") is True
-                    print("OK  fallback result persisted in storage")
-
-                    # 16) Both chairman models fail -> graceful error result.
-                    transport3 = httpx.MockTransport(make_total_failure_router())
-                    mock_http3 = httpx.AsyncClient(transport=transport3, timeout=10.0)
-                    mock_sdk3 = OpenRouter(api_key="test-key", async_client=mock_http3)
-                    orouter.get_client = lambda: mock_sdk3
-                    try:
-                        r = await http.post("/api/conversations", json={})
-                        cid4 = r.json()["id"]
-                        r = await http.post(
-                            f"/api/conversations/{cid4}/message/stream",
-                            json={"content": "Total failure test"},
-                        )
-                        assert r.status_code == 200, r.text
-                        body = b""
-                        async for chunk in r.aiter_bytes():
-                            body += chunk
-                        text = body.decode()
-                        stage3_line = [
-                            line for line in text.splitlines()
-                            if '"stage3_complete"' in line and line.startswith("data:")
-                        ][0]
-                        stage3_data = json.loads(stage3_line.split(":", 1)[1].strip())
-                        assert stage3_data["data"].get("error"), "expected error field in stage3 result"
-                        assert stage3_data["data"]["response"] is None
-                        print("OK  both chairman models failing yields graceful error result")
-                    finally:
-                        await mock_http3.aclose()
-                finally:
-                    orouter.get_client = failover_get_client
-                    await mock_http2.aclose()
+                # The OpenRouter leg must never see a chairman model request.
+                chairman_through_openrouter = [m for m in captured if m == cfg.CHAIRMAN_MODEL]
+                assert chairman_through_openrouter == [], \
+                    f"OpenRouter chairman call made: {chairman_through_openrouter}"
+                print("OK  NeuralWatt failure -> graceful error, no OpenRouter chairman call")
             finally:
-                backend.council.CHAIRMAN_TIMEOUT_S = original_timeout
-                backend.jobs.STAGE_HEARTBEAT_S = original_heartbeat
+                await fail_nw_http.aclose()
+                neuralwatt.get_client = old_nw_gc
 
     finally:
         orouter.get_client = original_get_client
+        neuralwatt.get_client = original_nw_get_client
         await mock_http.aclose()
+        await nw_http.aclose()
         # The httpx ASGI transport in this test does not trigger the
         # lifespan shutdown that normally closes the DB. Close it here
         # before deleting the sandbox to avoid a hung connection thread.

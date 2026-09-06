@@ -23,11 +23,16 @@ function getLiveHint(stepKey, elapsed) {
 }
 
 /**
- * Ceremonial progress indicator shown while a council run is in flight.
- * Replaces per-stage spinners: waiting time is brand experience.
+ * Ceremonial progress indicator for a council run. Replaces per-stage
+ * spinners: waiting time is brand experience.
  *
  * A step is `done` once its data has arrived, `active` while the backend
  * reports it running, and `pending` otherwise.
+ *
+ * The box is never un-mounted once rendered: it stays open while the run is
+ * in flight and, on completion, simply swaps its kicker line to "The Council
+ * has reached a verdict". Deliberately keeping it on screen means the strip
+ * never collapses, so nothing below it reflows when a run finishes.
  */
 export default function CouncilProgress({ message }) {
   let loading = message?.loading ?? {};
@@ -52,14 +57,32 @@ export default function CouncilProgress({ message }) {
     inFlight = STEPS.some((s) => inferred[s.key]);
   }
 
-  if (!inFlight) return null;
+  // On completion the strip stays rendered and just swaps its label: a
+  // successful run announces the verdict; a chairman-failure run (graceful
+  // error payload on stage 3) or an errored run says so instead — it must
+  // never claim a verdict was reached (Stage 3 renders the error detail
+  // below). Keeping it mounted means the strip never collapses, so nothing
+  // below it reflows when the run finishes either way.
+  const stage3Error = Boolean(message?.stage3 && message.stage3.error);
+  const verdict = !inFlight && message?.status === 'complete' && !stage3Error;
+  const failed = !inFlight && !verdict && (message?.status === 'error' || stage3Error);
+  if (!inFlight && !verdict && !failed) return null;
+
+  const kicker = verdict
+    ? 'The Council has reached a verdict'
+    : failed
+      ? 'The Council could not reach a verdict'
+      : 'The Council is in session';
 
   return (
     <div className="council-progress" role="status" aria-live="polite">
-      <div className="council-progress-kicker">The Council is in session</div>
+      <div className="council-progress-kicker">{kicker}</div>
       <ol className="council-progress-steps">
         {STEPS.map((step, i) => {
-          const done = Boolean(message[step.key]);
+          // A stage payload carrying an error (stage 3's graceful failure)
+          // was not completed successfully — no checkmark. Stage-1/2 arrays
+          // have no `error` field, so the guard is inert for them.
+          const done = Boolean(message[step.key]) && !message[step.key]?.error;
           const raw = loading[step.key];
           const active = Boolean(raw);
           const elapsed = raw?.elapsed_s ?? 0;
@@ -81,9 +104,15 @@ export default function CouncilProgress({ message }) {
                 <span className="step-label">{step.label}</span>
                 <span className="step-hint">
                   {liveHint ?? step.hint}
-                  {active && elapsed > 0 && (
-                    <span className="step-elapsed"> — {formatElapsed(elapsed)}</span>
-                  )}
+                  {/* Elapsed slot always rendered so its (varying) width can
+                      never reflow the step strip; hidden until it's live. */}
+                  <span
+                    className={`step-elapsed${active && elapsed > 0 ? ' is-live' : ''}`}
+                    aria-hidden={!(active && elapsed > 0)}
+                  >
+                    {' — '}
+                    {active && elapsed > 0 ? formatElapsed(elapsed) : '0s'}
+                  </span>
                 </span>
               </span>
               {i < STEPS.length - 1 && (

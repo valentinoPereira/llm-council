@@ -23,6 +23,13 @@ COUNCIL_MODELS = [
     "anthropic/claude-opus-5",
 ]
 
+# Reasoning effort requested from all council models (stages 1–2) and the
+# chairman (stage 3). Valid values match the OpenRouter/OpenAI union:
+# "minimal" | "low" | "medium" | "high" | "xhigh" | "max" (OpenRouter also
+# allows "none"). The title-generation model is excluded — it is a fast
+# classifier and thinking would only waste latency/cost.
+REASONING_EFFORT = "high"
+
 # Chairman model — synthesizes final response. Runs on NeuralWatt
 # (OpenAI-compatible API) with model id "glm-5.3". There is no fallback
 # model: if NeuralWatt fails or times out, stage 3 degrades gracefully.

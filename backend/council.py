@@ -359,9 +359,11 @@ Question: {user_query}"""
     messages = [{"role": "user", "content": title_prompt}]
 
     # Fast/cheap small model for title + category generation (see TITLE_MODEL).
+    # reasoning_effort="none": title gen is a classifier — thinking wastes
+    # latency/cost, so the configured REASONING_EFFORT is deliberately skipped.
     response = await query_model(
         TITLE_MODEL, messages, timeout=30.0, stage="title",
-        session_id=session_id,
+        session_id=session_id, reasoning_effort="none",
     )
 
     if response is None:

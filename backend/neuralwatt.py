@@ -15,6 +15,7 @@ from openai import AsyncOpenAI
 from .config import (
     NEURALWATT_API_KEY,
     NEURALWATT_BASE_URL,
+    REASONING_EFFORT,
     SIMULATED_MODEL_DELAY_S,
     USE_SIMULATED_MODELS,
 )
@@ -66,6 +67,8 @@ async def query_model(
     """
     Query a single NeuralWatt model via the OpenAI SDK.
 
+    Sends the configured REASONING_EFFORT as reasoning_effort per call.
+
     Returns a dict with 'content', 'duration_ms', and optional
     'reasoning_details' (populated when the provider returns the OpenAI-style
     'reasoning_content' extension), or None if failed.
@@ -82,10 +85,15 @@ async def query_model(
         print(f"[timing]{stage_tag} model={model} elapsed={result['duration_ms']}ms SIMULATED")
         return result
 
+    reasoning_kwargs = (
+        {} if REASONING_EFFORT is None
+        else {"reasoning_effort": REASONING_EFFORT}
+    )
     try:
         completion = await get_client().chat.completions.create(
             model=model,
             messages=messages,
+            **reasoning_kwargs,
         )
         message = completion.choices[0].message
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)

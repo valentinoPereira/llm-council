@@ -112,3 +112,14 @@ Then open http://localhost:5173 in your browser.
 - **Frontend:** React + Vite, react-markdown for rendering
 - **Storage:** JSON files in `data/conversations/`
 - **Package Management:** uv for Python, npm for JavaScript
+
+## Model Rankings
+
+The sidebar has a **Rankings** button (next to the theme toggle) that opens a leaderboard of the top council models, ranked by how their peers evaluated them in Stage 2. Facts worth knowing:
+
+- **Win rate, not vibes**: a model "wins" a question when it tops the aggregated peer ranking for that question — i.e. its average peer rank equals the best (lowest) average rank of that run. Aggregate ranks are averaged positions, so an exact 1.0 is rare; best-in-run is the real signal (ties count for all co-leaders).
+- **Displayed percentages sum to 100%** across the models shown.
+- **Fair to newcomers**: models need a minimum number of council runs (`RANKINGS_MIN_APPEARANCES = 15` in `backend/config.py`) before they can appear on the leaderboard, and the ordering uses the Wilson lower bound on the win rate — a model must build a proven track record before it can lead, not just a lucky streak.
+- **Clean data only**: dummy/test conversations are excluded from the stats (see `RANKINGS_DUMMY_TITLES` in `backend/config.py`).
+- Only the models currently on the council (`COUNCIL_MODELS`) are ranked — retired models lose their spot.
+- The API is `GET /api/rankings?top=N` (default 4) if you want the numbers yourself.

@@ -14,6 +14,14 @@
 - `ChatRoute`/`HomeRoute` are internal components of `App.jsx` handling route-specific behavior (fetch + 404 redirect; submit-then-navigate with `replace: true`).
 - Stage display stays in `Stage1.jsx` / `Stage2.jsx` / `Stage3.jsx` as tabbed, presentational components.
 
+## Rankings modal
+
+- "Rankings" button lives in the sidebar footer beside `ThemeToggle` (`Sidebar.jsx` owns the open/close state; the modal itself is `components/RankingsModal.jsx`).
+- Data comes from `api.getRankings(top)` via a `useQuery(['rankings', top])` inside the modal itself (fetch on open; no state duplication in `App.jsx`).
+- The modal displays **`share`** (normalized to sum 100% across the shown models) — NOT raw `win_rate` and NOT average rank (deliberate product decision). Raw wins/appearances only appear as a row tooltip.
+- Model display names strip the provider prefix client-side ("moonshotai/kimi-k3" → "kimi-k3").
+- The percentage math and small-sample protections (quorum, Wilson ranking) are backend concerns — see `.rules/backend.md` § Rankings endpoint. The frontend never recomputes stats.
+
 ## Rendering
 
 - All ReactMarkdown components must be wrapped in `<div className="markdown-content">` for proper spacing. The class is defined globally in `index.css` (12px padding, nested rules).

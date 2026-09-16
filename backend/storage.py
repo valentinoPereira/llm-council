@@ -24,7 +24,13 @@ from typing import Any, Dict, List, Optional
 
 import aiosqlite
 
-from .config import DATA_DIR
+from .config import (
+    DATA_DIR,
+    RANKINGS_DUMMY_TITLES,
+    RANKINGS_MIN_APPEARANCES,
+    RANKINGS_PRIOR_WEIGHT,
+    RANKINGS_WILSON_Z,
+)
 
 # Cap user input length to avoid runaway token usage across ~9 council
 # LLM calls per message.
@@ -477,6 +483,136 @@ async def fail_orphan_pending_messages() -> int:
         await update_assistant_message(int(row["id"]), metadata=new_meta)
         fixed += 1
     return fixed
+
+
+def _wilson_lower_bound(wins: int, n: int, z: float) -> float:
+    """Wilson-score lower bound on a binomial proportion (win rate).
+
+    The pessimistic end of the confidence interval: 0 wins or a tiny
+    sample yields ~0, and a model must accumulate real wins before the
+    floor rises. Used as the leaderboard sort key so small-sample luck
+    cannot outrank proven performance.
+    """
+    if n == 0:
+        return 0.0
+    p = wins / n
+    z2 = z * z
+    denominator = 1 + z2 / n
+    center = p + z2 / (2 * n)
+    margin = z * ((p * (1 - p) + z2 / (4 * n)) / n) ** 0.5
+    return max(0.0, (center - margin) / denominator)
+
+
+async def get_model_rankings(models: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    """Compute peer-review win-rate statistics per council model.
+
+    Scans every assistant message with persisted stage-2 metadata and counts,
+    per model:
+      - ``appearances``: messages where the model participated (per its
+        ``label_to_model`` mapping), and
+      - ``wins``: messages where the model topped that message's
+        ``aggregate_rankings`` (``average_rank`` equal to the best — lowest —
+        average rank of that run; ties count as a win for every co-leader).
+        Aggregate ranks are averaged peer positions, so an exact 1.0 is rare:
+        counting only exact 1.0 would discard most runs where a model clearly
+        led the field (e.g. every ranker put it first or second).
+
+    Dummy/test conversations (titles in ``RANKINGS_DUMMY_TITLES``) are
+    excluded entirely — neither appearances nor wins from those runs count.
+
+    Models are ranked by the Wilson-score lower bound on their raw win
+    rate (``confidence_floor``), which is the pessimistic end of a
+    ``RANKINGS_WILSON_Z`` confidence interval: a model needs a solid
+    sample of actual wins before it can lead, so newcomers with a lucky
+    start cannot take the top spot. A shrunk empirical-Bayes rate
+    (``adjusted_win_rate``) is also returned for the share computation.
+
+    Args:
+        models: Restrict stats to these model identifiers. When None, all
+            models seen in the data are included.
+
+    Returns:
+        List of ``{model, appearances, wins, win_rate, adjusted_win_rate,
+        confidence_floor}`` dicts sorted by the Wilson lower bound
+        (descending), then by appearances (descending).
+    """
+    db = await _get_db()
+    cur = await db.execute(
+        "SELECT m.metadata, c.title FROM messages m "
+        "JOIN conversations c ON c.id = m.conversation_id "
+        "WHERE m.role = 'assistant' AND m.metadata IS NOT NULL"
+    )
+    rows = await cur.fetchall()
+    await cur.close()
+
+    appearances: Dict[str, int] = {}
+    wins: Dict[str, int] = {}
+    for row in rows:
+        try:
+            meta = json.loads(row["metadata"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(meta, dict):
+            continue
+        label_to_model = meta.get("label_to_model") or {}
+        aggregate = meta.get("aggregate_rankings") or []
+        if not label_to_model or not aggregate:
+            continue
+        if str(row["title"] or "").strip().lower() in RANKINGS_DUMMY_TITLES:
+            continue  # dummy run — excluded from stats
+        for model in label_to_model.values():
+            appearances[model] = appearances.get(model, 0) + 1
+        # Best-in-run wins: every model whose average rank equals the lowest
+        # average rank of the run is a co-leader and earns a win. Exact 1.0
+        # is an averaged position, so best-in-run (not == 1.0) is the real
+        # "topped the peer review" signal.
+        best_rank = min(
+            (item.get("average_rank") for item in aggregate), default=None
+        )
+        if best_rank is not None:
+            for item in aggregate:
+                if item.get("average_rank") == best_rank:
+                    model = item.get("model")
+                    wins[model] = wins.get(model, 0) + 1
+
+    if models is not None:
+        appearances = {m: n for m, n in appearances.items() if m in models}
+
+    # Empirical-Bayes prior: overall win rate across the filtered pool.
+    total_appearances = sum(appearances.values())
+    total_wins = sum(wins.get(m, 0) for m in appearances)
+    prior = (total_wins / total_appearances) if total_appearances else 0.0
+
+    stats = []
+    for model, n_appearances in appearances.items():
+        n_wins = wins.get(model, 0)
+        stats.append(
+            {
+                "model": model,
+                "appearances": n_appearances,
+                "wins": n_wins,
+                "win_rate": round(n_wins / n_appearances, 4) if n_appearances else 0.0,
+                "adjusted_win_rate": round(
+                    (n_wins + RANKINGS_PRIOR_WEIGHT * prior)
+                    / (n_appearances + RANKINGS_PRIOR_WEIGHT),
+                    4,
+                ),
+                "confidence_floor": _wilson_lower_bound(
+                    n_wins, n_appearances, RANKINGS_WILSON_Z
+                ),
+            }
+        )
+    # Rank by the Wilson lower bound — the "prove it" ordering. Ties fall
+    # back to the shrunk rate, then to raw sample size.
+    stats.sort(
+        key=lambda s: (
+            -s["confidence_floor"],
+            -s["adjusted_win_rate"],
+            -s["appearances"],
+        )
+    )
+    stats = [s for s in stats if s["appearances"] >= RANKINGS_MIN_APPEARANCES]
+    return stats
 
 
 async def delete_conversation(conversation_id: str) -> bool:

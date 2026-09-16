@@ -9,8 +9,22 @@ import './StageNav.css';
  * Active section is tracked with an IntersectionObserver (scrollspy):
  * the topmost section crossing the upper band of the scrollport is
  * considered current and its button highlighted.
+ *
+ * `onJump` is called on every nav click. ChatInterface passes its reading-
+ * intent marker there: without it, the auto-scroll "pin to bottom" that runs
+ * on each server heartbeat during a live run would cancel the smooth
+ * scrollIntoView midway, leaving the section out of the spy band (so it never
+ * highlights) until the user scrolls manually.
+ *
+ * During a programmatic jump the spy is suppressed: the observer fires
+ * transition entries for sections the scroll merely passes through (e.g.
+ * Peer Review on the way to Verdict), making the highlight bounce
+ * Verdict → Peer Review → Verdict. The clicked section stays lit until the
+ * scroll finishes (`scrollend`, with a timer fallback for browsers that
+ * never fire it, or when the jump is already a no-op at the target), then
+ * the observer resumes ownership.
  */
-export default function StageNav({ sections }) {
+export default function StageNav({ sections, onJump }) {
   const [activeId, setActiveId] = useState(null);
   // Sections that arrived after this nav mounted (the run is live and a
   // later stage just finished) — they get the pulse + dot until seen.
@@ -20,6 +34,22 @@ export default function StageNav({ sections }) {
   // only depends on the ids, so key the effect off the joined id list.
   const idKey = sections.map((s) => s.id).join('|');
   const prevIdsRef = useRef(null);
+
+  // While true, scrollspy observer updates are ignored: a programmatic
+  // smooth scroll is in flight and its target owns the highlight.
+  const suppressSpyRef = useRef(false);
+  const suppressTimerRef = useRef(null);
+
+  const endSpySuppression = () => {
+    suppressSpyRef.current = false;
+    if (suppressTimerRef.current != null) {
+      clearTimeout(suppressTimerRef.current);
+      suppressTimerRef.current = null;
+    }
+  };
+
+  // Safety net if the component unmounts mid-scroll.
+  useEffect(() => endSpySuppression, []);
 
   // Arrival detection: the first run baselines the ids already present at
   // mount (Question + Stage I, since this nav only mounts once a second
@@ -67,6 +97,9 @@ export default function StageNav({ sections }) {
 
     const observer = new IntersectionObserver(
       (entries) => {
+        // A clicked section owns the highlight until its smooth scroll
+        // ends — ignore pass-through transitions during the jump.
+        if (suppressSpyRef.current) return;
         const visible = entries
           .filter((entry) => entry.isIntersecting)
           .sort(
@@ -86,7 +119,29 @@ export default function StageNav({ sections }) {
   }, [idKey]);
 
   const jumpTo = (id) => {
+    // Reading intent: suppress the live-run auto-follow pin so a heartbeat
+    // can't stomp on the smooth scroll below (mid-jump scrollTop writes cancel
+    // scrollIntoView and strand the section outside the spy band).
+    onJump?.();
     const el = document.getElementById(id);
+    // Optimistic highlight: the IntersectionObserver only reports
+    // transitions, so if the entry's recorded state is already "not
+    // intersecting but heading in", the callback may lag or coalesce behind
+    // the animation. Setting it here makes the click feel immediate; the
+    // observer still owns corrections while scrolling.
+    setActiveId(id);
+    // Own the highlight for the duration of the smooth scroll (see the
+    // component docstring): suppression is ended by `scrollend`, with a
+    // timer fallback for browsers without it and for no-op jumps.
+    suppressSpyRef.current = true;
+    suppressTimerRef.current = setTimeout(endSpySuppression, 1500);
+    // `scroll` events don't bubble, but capture on window intercepts them
+    // for any scroller — here the messages-container that scrollIntoView
+    // drives.
+    window.addEventListener('scrollend', endSpySuppression, {
+      capture: true,
+      once: true,
+    });
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     // Move focus for keyboard users without fighting the smooth scroll.
     if (el && el.getAttribute('tabindex') === '-1') {

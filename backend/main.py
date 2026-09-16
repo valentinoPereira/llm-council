@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from . import jobs, storage
-from .config import USE_SIMULATED_MODELS
+from .config import COUNCIL_MODELS, RANKINGS_TOP_N_DEFAULT, USE_SIMULATED_MODELS
 from .neuralwatt import close_client as close_neuralwatt_client
 from .openrouter import close_client, get_client
 
@@ -96,6 +96,18 @@ class Conversation(BaseModel):
     messages: List[Dict[str, Any]]
 
 
+class ModelRanking(BaseModel):
+    """Peer-review win-rate statistics for one council model."""
+    model: str
+    appearances: int
+    wins: int
+    win_rate: float
+    adjusted_win_rate: float
+    # Adjusted win rate normalized across the returned (top-N) slice so the
+    # shown models' shares add up to 1.0.
+    share: float
+
+
 @app.get("/")
 async def root():
     """Health check endpoint."""
@@ -123,6 +135,34 @@ async def get_conversation(conversation_id: str):
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+@app.get("/api/rankings", response_model=List[ModelRanking])
+async def get_rankings(top: Optional[int] = None):
+    """Peer-review leaderboard for the current council models.
+
+    Stats cover all completed stage-2 runs, excluding dummy/test
+    conversations, restricted to the models currently configured in
+    ``COUNCIL_MODELS`` (historical models no longer on the council are not
+    ranked). Win rates are shrunk toward the pooled mean (empirical Bayes)
+    so new models with small samples cannot dominate; ranking and slicing
+    use the adjusted rate. ``share`` is the adjusted rate normalized across
+    the returned slice so the shown percentages add up to 100%.
+
+    Pass ``?top=N`` to cap the number of models returned; the default is
+    ``RANKINGS_TOP_N_DEFAULT``.
+    """
+    stats = await storage.get_model_rankings(models=COUNCIL_MODELS)
+    limit = RANKINGS_TOP_N_DEFAULT if top is None else max(1, top)
+    top_stats = stats[:limit]
+    total = sum(s["adjusted_win_rate"] for s in top_stats)
+    if total > 0:
+        for s in top_stats:
+            s["share"] = round(s["adjusted_win_rate"] / total, 4)
+    else:
+        for s in top_stats:
+            s["share"] = 0.0
+    return top_stats
 
 
 @app.delete("/api/conversations/{conversation_id}", status_code=204)

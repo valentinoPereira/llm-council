@@ -14,6 +14,7 @@ from openrouter.utils.retries import BackoffStrategy, RetryConfig
 
 from .config import (
     OPENROUTER_API_KEY,
+    REASONING_EFFORT,
     SIMULATED_MODEL_DELAY_S,
     USE_SIMULATED_MODELS,
 )
@@ -144,6 +145,7 @@ async def query_model(
     timeout: float = 120.0,
     stage: str = "",
     session_id: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Query a single model via the OpenRouter SDK.
@@ -157,6 +159,9 @@ async def query_model(
             Acts as a sticky routing key (maximizes prompt cache hits by
             routing to the same provider) and groups requests in the
             OpenRouter console. Max 256 characters.
+        reasoning_effort: Reasoning effort hint sent to the model
+            (e.g., "low"/"medium"/"high"). Defaults to the configured
+            REASONING_EFFORT when not overridden.
 
     Returns:
         Response dict with 'content', 'duration_ms', and optional
@@ -172,12 +177,20 @@ async def query_model(
         print(f"[timing]{stage_tag} model={model} elapsed={elapsed_ms}ms SIMULATED")
         return result
 
+    # Allow "none" to fully disable thinking; otherwise fall back to config.
+    effort = reasoning_effort or REASONING_EFFORT
+    reasoning_kwargs = (
+        {} if effort is None
+        else {"reasoning": {"effort": effort, "enabled": effort != "none"}}
+    )
+
     try:
         result = await get_client().chat.send_async(
             model=model,
             messages=messages,
             timeout_ms=int(timeout * 1000),
             session_id=session_id,
+            **reasoning_kwargs,
         )
         message = result.choices[0].message
         elapsed_ms = round((time.perf_counter() - start) * 1000, 1)
@@ -206,6 +219,7 @@ async def query_models_parallel(
     messages: List[Dict[str, str]],
     stage: str = "",
     session_id: Optional[str] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> Dict[str, Optional[Dict[str, Any]]]:
     """
     Query multiple models in parallel.
@@ -216,13 +230,18 @@ async def query_models_parallel(
         stage: Human-readable stage label for timing logs
         session_id: OpenRouter session id applied to every request
             (see query_model for details)
+        reasoning_effort: Reasoning effort hint forwarded to every
+            query_model call (see query_model for details)
 
     Returns:
         Dict mapping model identifier to response dict (or None if failed)
     """
     # Create tasks for all models
     tasks = [
-        query_model(model, messages, stage=stage, session_id=session_id)
+        query_model(
+            model, messages, stage=stage, session_id=session_id,
+            reasoning_effort=reasoning_effort,
+        )
         for model in models
     ]
 

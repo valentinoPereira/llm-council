@@ -1,0 +1,159 @@
+/* ── Rankings modal ──────────────────────────────────────────────────────────
+   Themed via the global semantic tokens (--bg-panel, --border-default,
+   --gold-line, ...) so it follows light/dark automatically. */
+
+.rankings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in oklch, var(--bg-body) 55%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.rankings-modal {
+  width: min(420px, 100%);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow:
+    0 24px 64px color-mix(in oklch, var(--bg-body) 45%, transparent),
+    0 0 0 1px color-mix(in oklch, var(--gold-line) 18%, transparent);
+  overflow: hidden;
+}
+
+.rankings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border-default);
+  background: radial-gradient(
+    110% 110% at 30% 0%,
+    color-mix(in oklch, var(--gold-line) 8%, transparent),
+    transparent 72%
+  );
+}
+
+.rankings-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rankings-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 560;
+  letter-spacing: 0.01em;
+  color: var(--text-primary);
+}
+
+.rankings-subtitle {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.rankings-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    color 120ms ease,
+    border-color 120ms ease;
+}
+
+.rankings-close-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.rankings-body {
+  padding: 14px 20px 20px;
+}
+
+.rankings-placeholder {
+  padding: 18px 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.rankings-placeholder.rankings-error {
+  color: var(--text-primary);
+}
+
+.rankings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rankings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.rankings-row:nth-child(1) {
+  border-color: color-mix(in oklch, var(--gold-line) 45%, var(--border-default));
+  background: color-mix(in oklch, var(--gold-line) 7%, var(--bg-subtle));
+}
+
+.rankings-medal {
+  width: 24px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+
+.rankings-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 520;
+  color: var(--text-primary);
+}
+
+.rankings-rate {
+  flex-shrink: 0;
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 560;
+  color: var(--gold-line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rankings-close-btn {
+    transition: none;
+  }
+}

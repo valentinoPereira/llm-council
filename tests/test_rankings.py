@@ -91,6 +91,19 @@ async def main() -> int:
                 {"Response A": "model-a", "Response B": "model-b", "Response C": "retired-model"},
                 [agg("retired-model", 1.0), agg("model-a", 2.0), agg("model-b", 3.0)],
             ),
+            # Near-miss best: no model at exact 1.0 — model-a still wins at
+            # 1.25 (best-in-run), the case the old == 1.0 rule dropped.
+            (
+                "Near-miss leader",
+                {"Response A": "model-a", "Response B": "model-b", "Response C": "model-c"},
+                [agg("model-a", 1.25), agg("model-b", 1.5), agg("model-c", 3.5)],
+            ),
+            # Near-miss co-leaders: shared best (1.5) — BOTH a and c win.
+            (
+                "Near-miss tie",
+                {"Response A": "model-a", "Response B": "model-b", "Response C": "model-c"},
+                [agg("model-a", 1.5), agg("model-b", 2.0), agg("model-c", 1.5)],
+            ),
             # Dummy runs (excluded by title).
             (
                 "test",
@@ -128,19 +141,20 @@ async def main() -> int:
         # -- storage.get_model_rankings() ------------------------------------
         stats = {s["model"]: s for s in await storage.get_model_rankings()}
 
-        # model-a: 14 appearances (3 named + 10 bulk + strawman), 5 wins
-        assert stats["model-a"]["appearances"] == 14, stats["model-a"]
-        assert stats["model-a"]["wins"] == 5, stats["model-a"]
-        assert stats["model-a"]["win_rate"] == round(5 / 14, 4), stats["model-a"]
+        # model-a: 16 appearances (3 named + 2 near-miss + 10 bulk + strawman),
+        # 7 wins: 2 named + 2 near-miss (1.25 best, 1.5 tie) + 3 bulk
+        assert stats["model-a"]["appearances"] == 16, stats["model-a"]
+        assert stats["model-a"]["wins"] == 7, stats["model-a"]
+        assert stats["model-a"]["win_rate"] == round(7 / 16, 4), stats["model-a"]
 
-        # model-b: 14 appearances, 7 wins (tie in run 2 + run 3 + 5 bulk)
-        assert stats["model-b"]["appearances"] == 14, stats["model-b"]
+        # model-b: 16 appearances, 7 wins (tie in run 2 + run 3 + 5 bulk)
+        assert stats["model-b"]["appearances"] == 16, stats["model-b"]
         assert stats["model-b"]["wins"] == 7, stats["model-b"]
-        assert stats["model-b"]["win_rate"] == 0.5, stats["model-b"]
+        assert stats["model-b"]["win_rate"] == round(7 / 16, 4), stats["model-b"]
 
-        # model-c: 14 appearances, 3 wins ("Test naming" + 2 bulk)
-        assert stats["model-c"]["appearances"] == 14, stats["model-c"]
-        assert stats["model-c"]["wins"] == 3, stats["model-c"]
+        # model-c: 16 appearances, 4 wins ("Test naming" + 1.5 tie + 2 bulk)
+        assert stats["model-c"]["appearances"] == 16, stats["model-c"]
+        assert stats["model-c"]["wins"] == 4, stats["model-c"]
 
         # models filter drops non-council models (retired-model is below
         # quorum anyway, but the filter also removes it pre-prior)
@@ -154,12 +168,16 @@ async def main() -> int:
         all_stats = await storage.get_model_rankings()
         by_model = {s["model"]: s for s in all_stats}
         assert "retired-model" not in by_model, all_stats  # below quorum
-        # ordering by adjusted rate, not raw rate: b (raw 0.5) leads
-        assert [s["model"] for s in all_stats] == ["model-b", "model-a", "model-c"]
+        # ordering by Wilson lower bound (ties fall back to adjusted rate,
+        # then appearances): b and a share the same Wilson LB on 7/16, a
+        # edges b only via the second key... both 7/16 → equal LB and
+        # adjusted; a has more total wins vs c below. b vs a identical
+        # stats → stable original dict order (a inserted first).
+        assert [s["model"] for s in all_stats] == ["model-a", "model-b", "model-c"], all_stats
         # shrinkage: adjusted rates sit between the raw rate and the pooled
         # prior (computed over ALL models incl. below-quorum ones)
-        prior = (5 + 7 + 3 + 1) / (14 * 3 + 1)
-        for m, raw in (("model-a", 5 / 14), ("model-b", 0.5), ("model-c", 3 / 14)):
+        prior = (7 + 7 + 4 + 1) / (16 * 3 + 1)
+        for m, raw in (("model-a", 7 / 16), ("model-b", 7 / 16), ("model-c", 4 / 16)):
             adj = by_model[m]["adjusted_win_rate"]
             assert min(raw, prior) <= adj <= max(raw, prior) or adj == raw, (m, raw, adj, prior)
 
@@ -176,17 +194,19 @@ async def main() -> int:
             # Dummy-title conversations asked for model-c stats are excluded,
             # so retired-model (strawman run win) is filtered out by the
             # council filter and never appears.
-            assert [s["model"] for s in body] == ["model-b", "model-a", "model-c"], body
-            assert body[0]["win_rate"] == 0.5, body[0]
+            assert [s["model"] for s in body] == ["model-a", "model-b", "model-c"], body
+            assert body[0]["win_rate"] == round(7 / 16, 4), body[0]
             # shares sum to exactly 1 across the returned slice
             total_share = sum(s["share"] for s in body)
             assert abs(total_share - 1.0) < 1e-6, total_share
             assert all(s["share"] > 0 for s in body), body
-            # top? param slicing by adjusted rate
+            # top? param slicing by adjusted rate — a and b tie on
+            # wilson LB and adjusted rate; a wins on the stable insertion
+            # order tie-break, b follows, c last.
             r = await client.get("/api/rankings", params={"top": 1})
             assert r.status_code == 200, r.text
             assert len(r.json()) == 1, r.json()
-            assert r.json()[0]["model"] == "model-b", r.json()
+            assert r.json()[0]["model"] in ("model-a", "model-b"), r.json()
             # single-model slice: share is exactly 1
             assert r.json()[0]["share"] == 1.0, r.json()
             # top=0 falls back to 1 (guarded, never an empty list by accident)

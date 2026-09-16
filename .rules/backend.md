@@ -47,13 +47,13 @@
 
 - `GET /api/rankings?top=N` (default `RANKINGS_TOP_N_DEFAULT = 4`) returns peer-review win-rate statistics for the **current** `COUNCIL_MODELS` only — historical models no longer on the council are not ranked.
 - The computation lives **only** in `storage.get_model_rankings()`; `main.py` stays thin (slice + share normalization). All knobs (`RANKINGS_TOP_N_DEFAULT`, `RANKINGS_PRIOR_WEIGHT`, `RANKINGS_MIN_APPEARANCES`, `RANKINGS_WILSON_Z`, `RANKINGS_DUMMY_TITLES`) live in `config.py`.
-- Semantics per message: appearance = model present in `metadata.label_to_model`; win = model tops `metadata.aggregate_rankings` (`average_rank == 1.0`, ties count for every co-leader).
+- Semantics per message: appearance = model present in `metadata.label_to_model`; win = model tops `metadata.aggregate_rankings` — its `average_rank` equals the lowest (best) average rank of that run (ties count for every co-leader). Aggregate ranks are averaged peer positions, so best-in-run — not exact `1.0` — is the signal.
 - **Dummy-run exclusion**: conversations whose title full-matches `RANKINGS_DUMMY_TITLES` (case-insensitive) are dropped from stats entirely — if a real dummy title pattern is found, add it to the set in `config.py` rather than special-casing in code.
 - **Small-sample protection (two layers)**:
   1. Quorum — models with fewer than `RANKINGS_MIN_APPEARANCES` are excluded from the leaderboard (new council members sit out until they accumulate runs).
   2. Wilson ranking — sort key is the Wilson-score **lower bound** on the raw win rate (`confidence_floor`), so leaders must have a proven win sample, not a lucky streak. Tie-breaks: shrunk rate, then appearances.
 - **Share normalization**: the endpoint divides each shown model's empirical-Bayes shrunk rate (`adjusted_win_rate`, prior = pool mean, weight `RANKINGS_PRIOR_WEIGHT`) by the sum across the returned top-N slice, so displayed percentages add up to exactly 100%.
-- Known data caveat (as of 2026-09): grok-4.6 (1 win / 7 runs) vs claude-opus-5 (2/22) are statistically indistinguishable — Wilson floors 2.6% vs 2.5%. This is a genuine ambiguity in the data, not a bug; the order between near-tied models can flip as samples grow.
+- Known data caveat (as of 2026-09): grok-4.6 (1 win / 7 runs) vs claude-opus-5 (2/22) are statistically indistinguishable — Wilson floors 2.6% vs 2.5%. The quorum was raised to 15 so n=7 samples can no longer appear at all; the order between near-tied models can still flip as samples grow.
 - Tests: `tests/test_rankings.py` (sandboxed DB) covers raw stats, tie wins, dummy exclusion, quorum, shrinkage bounds, Wilson ordering, share normalization, and `?top` slicing.
 
 ## Observability

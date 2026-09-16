@@ -511,8 +511,11 @@ async def get_model_rankings(models: Optional[List[str]] = None) -> List[Dict[st
       - ``appearances``: messages where the model participated (per its
         ``label_to_model`` mapping), and
       - ``wins``: messages where the model topped that message's
-        ``aggregate_rankings`` (``average_rank == 1.0``; ties count as a win
-        for every co-leader).
+        ``aggregate_rankings`` (``average_rank`` equal to the best — lowest —
+        average rank of that run; ties count as a win for every co-leader).
+        Aggregate ranks are averaged peer positions, so an exact 1.0 is rare:
+        counting only exact 1.0 would discard most runs where a model clearly
+        led the field (e.g. every ranker put it first or second).
 
     Dummy/test conversations (titles in ``RANKINGS_DUMMY_TITLES``) are
     excluded entirely — neither appearances nor wins from those runs count.
@@ -559,10 +562,18 @@ async def get_model_rankings(models: Optional[List[str]] = None) -> List[Dict[st
             continue  # dummy run — excluded from stats
         for model in label_to_model.values():
             appearances[model] = appearances.get(model, 0) + 1
-        for item in aggregate:
-            if item.get("average_rank") == 1.0:
-                model = item.get("model")
-                wins[model] = wins.get(model, 0) + 1
+        # Best-in-run wins: every model whose average rank equals the lowest
+        # average rank of the run is a co-leader and earns a win. Exact 1.0
+        # is an averaged position, so best-in-run (not == 1.0) is the real
+        # "topped the peer review" signal.
+        best_rank = min(
+            (item.get("average_rank") for item in aggregate), default=None
+        )
+        if best_rank is not None:
+            for item in aggregate:
+                if item.get("average_rank") == best_rank:
+                    model = item.get("model")
+                    wins[model] = wins.get(model, 0) + 1
 
     if models is not None:
         appearances = {m: n for m, n in appearances.items() if m in models}

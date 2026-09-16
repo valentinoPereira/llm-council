@@ -97,7 +97,13 @@ RANKINGS_WILSON_Z = 1.96  # ~95% one-sided confidence
 # runs for their stats to be meaningful (they also cannot "take the
 # spotlight" on a lucky few runs). Models below the quorum are excluded
 # from /api/rankings, not merely shrunk.
-RANKINGS_MIN_APPEARANCES = 5
+#
+# 15 (not 5): with the Wilson lower bound (z=1.96) as the sort key, small
+# samples only produce a *meaningful* ordering once n is large enough that
+# the LB separates. Live data showed 1 win in 7 runs out-ranking 2 wins in
+# 22 runs by 0.0004 — pure noise. At n>=15 a win rate needs a real win
+# sample before its lower bound can lead; a 1-of-7 newcomer stays out.
+RANKINGS_MIN_APPEARANCES = 15
 
 # Simulated model mode — for UI testing without spending credits.
 # When true, query_model / query_models_parallel return synthetic responses

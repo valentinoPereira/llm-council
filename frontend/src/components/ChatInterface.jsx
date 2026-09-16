@@ -306,7 +306,10 @@ export default function ChatInterface({
                         sections; hidden until more than one section
                         exists. */}
                     {getSections(msg, index).length > 1 && (
-                      <StageNav sections={getSections(msg, index)} />
+                      <StageNav
+                        sections={getSections(msg, index)}
+                        onJump={markUserReading}
+                      />
                     )}
 
                     {msg.stage1 && (

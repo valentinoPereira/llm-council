@@ -49,6 +49,22 @@ export const api = {
   },
 
   /**
+   * Peer-review win-rate leaderboard for the current council models.
+   *
+   * @param {number} [top] - cap on number of models returned; the backend
+   *   defaults to its RANKINGS_TOP_N_DEFAULT when omitted
+   */
+  async getRankings(top) {
+    const url = new URL(`${API_BASE}/api/rankings`);
+    if (top !== undefined) url.searchParams.set('top', String(top));
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error('Failed to load rankings');
+    }
+    return response.json();
+  },
+
+  /**
    * Permanently delete a conversation and all of its messages.
    */
   async deleteConversation(conversationId) {

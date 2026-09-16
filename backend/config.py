@@ -64,6 +64,41 @@ UNCATEGORIZED = "Unclassified"
 # Data directory for conversation storage
 DATA_DIR = "data/conversations"
 
+# Rankings endpoint -----------------------------------------------------------
+
+# Conversation titles that identify dummy/test runs; their peer-review votes
+# are excluded from the model ranking statistics. Full-match only (a
+# legitimate "Testing waters" conversation still counts).
+RANKINGS_DUMMY_TITLES = frozenset({
+    "test", "test es", "test1", "test2", "abcd", "dear", "hey jude",
+    "erwrwer", "rwerwerwer", "tell me a story", "new conversation",
+})  # lowercase — matched case-insensitively
+
+# Default number of top models returned by the rankings endpoint when the
+# caller does not pass an explicit ?top= value.
+RANKINGS_TOP_N_DEFAULT = 4
+
+# Bayesian prior weight (in "appearances") used to shrink win rates toward
+# the global mean, so newly added models with a lucky small sample cannot
+# dominate the leaderboard. Higher = stronger damping of small samples.
+# adjusted = (wins + m * prior) / (appearances + m), where prior is the
+# global win rate across the filtered pool (empirical Bayes).
+RANKINGS_PRIOR_WEIGHT = 10
+
+# Wilson-score lower bound z-value ranking: models are ordered by the
+# pessimistic end of the Wilson confidence interval on their win rate, so a
+# model needs a decent sample of actual wins before it can lead. Using the
+# lower bound (rather than the point estimate) makes small samples rank
+# low automatically, without hand-tuned magic numbers.
+RANKINGS_WILSON_Z = 1.96  # ~95% one-sided confidence
+
+# Minimum number of council run appearances a model needs before it is
+# eligible for the leaderboard. New models sit out until they have enough
+# runs for their stats to be meaningful (they also cannot "take the
+# spotlight" on a lucky few runs). Models below the quorum are excluded
+# from /api/rankings, not merely shrunk.
+RANKINGS_MIN_APPEARANCES = 5
+
 # Simulated model mode — for UI testing without spending credits.
 # When true, query_model / query_models_parallel return synthetic responses
 # instead of calling the OpenRouter API.

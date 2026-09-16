@@ -225,7 +225,7 @@ async def main() -> int:
 
             # OpenRouter was actually called
             assert "moonshotai/kimi-k3" in captured, "chairman not called"
-            assert "google/gemini-2.5-flash" in captured, "title model not called"
+            assert cfg.TITLE_MODEL in captured, "title model not called"
             council_models = set(cfg.COUNCIL_MODELS)
             assert council_models.issubset(captured.keys()), \
                 f"missing council models: {council_models - set(captured.keys())}"

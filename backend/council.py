@@ -12,6 +12,7 @@ from .config import (
     CHAIRMAN_TIMEOUT_S,
     CONVERSATION_CATEGORIES,
     COUNCIL_MODELS,
+    TITLE_MODEL,
     UNCATEGORIZED,
 )
 from .openrouter import query_model, query_models_parallel
@@ -357,9 +358,9 @@ Question: {user_query}"""
 
     messages = [{"role": "user", "content": title_prompt}]
 
-    # Use gemini-2.5-flash for title generation (fast and cheap)
+    # Fast/cheap small model for title + category generation (see TITLE_MODEL).
     response = await query_model(
-        "google/gemini-2.5-flash", messages, timeout=30.0, stage="title",
+        TITLE_MODEL, messages, timeout=30.0, stage="title",
         session_id=session_id,
     )
 

@@ -19,7 +19,7 @@ NEURALWATT_BASE_URL = os.getenv(
 COUNCIL_MODELS = [
     "moonshotai/kimi-k3",
     "openai/gpt-5.6-sol",
-    "google/gemini-3.7-flash",
+    "x-ai/grok-4.6",
     "anthropic/claude-opus-5",
 ]
 
@@ -27,6 +27,10 @@ COUNCIL_MODELS = [
 # (OpenAI-compatible API) with model id "glm-5.3". There is no fallback
 # model: if NeuralWatt fails or times out, stage 3 degrades gracefully.
 CHAIRMAN_MODEL = "glm-5.3"
+
+# Title generation model — fast and cheap, called through OpenRouter after
+# the first user message to produce the conversation title + category.
+TITLE_MODEL = "ibm-granite/granite-4.2-8b"
 
 # Hard timeout for the chairman stage (in seconds). A single-provider
 # reasoning model can stall despite SDK timeouts, so we enforce an app-level

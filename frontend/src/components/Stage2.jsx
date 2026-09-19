@@ -1,7 +1,9 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
 import { displayModelName, formatDuration } from '../utils';
+import useStickyTabs from '../hooks/useStickyTabs';
 import './Stage2.css';
+import './StageTabs.css';
 
 function deAnonymizeText(text, labelToModel) {
   if (!labelToModel) return text;
@@ -15,6 +17,8 @@ function deAnonymizeText(text, labelToModel) {
 }
 
 export default function Stage2({ rankings, labelToModel, aggregateRankings, onUserReading }) {
+  const { rootRef, listRef, onValueChange } = useStickyTabs(onUserReading);
+
   if (!rankings || rankings.length === 0) {
     return null;
   }
@@ -40,11 +44,13 @@ export default function Stage2({ rankings, labelToModel, aggregateRankings, onUs
       </p>
 
       <Tabs.Root
+        ref={rootRef}
+        className="tabs-root"
         defaultValue="tab-0"
         orientation="horizontal"
-        onValueChange={onUserReading}
+        onValueChange={onValueChange}
       >
-        <Tabs.List className="tabs">
+        <Tabs.List ref={listRef} className="tabs">
           {rankings.map((rank, index) => (
             <Tabs.Trigger
               key={index}

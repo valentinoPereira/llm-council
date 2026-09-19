@@ -11,6 +11,10 @@
     flex: 1;
     overflow-y: auto;
     padding: 32px 24px 24px;
+    /* Sticky `top` is measured from the padding edge, but scroll-margin from
+       the scrollport edge. Matching scroll-padding puts both in the same
+       coordinates so `--stage-nav-offset` (StageNav.css) serves either. */
+    scroll-padding-top: 32px;
   }
 
   /* Centered reading column — long lines are the enemy of luxury.
@@ -402,7 +406,10 @@
 @media (max-width: 900px) {
   .chat-interface {
     /* Room for the fixed sidebar menu toggle. */
-    .messages-container { padding-top: 64px; }
+    .messages-container {
+      padding-top: 64px;
+      scroll-padding-top: 64px;
+    }
 
     .empty-state-wordmark { font-size: 30px; }
   }

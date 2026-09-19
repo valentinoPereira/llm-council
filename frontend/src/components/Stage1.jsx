@@ -1,17 +1,22 @@
 import * as Tabs from '@radix-ui/react-tabs';
 import Markdown from './Markdown';
 import { displayModelName, formatDuration } from '../utils';
+import useStickyTabs from '../hooks/useStickyTabs';
 import './Stage1.css';
+import './StageTabs.css';
 
 /**
  * Stage 1 renders every member's independent response, one per tab.
  *
  * Members are presented in a Radix tab strip matching the Peer Review
- * section, so the reader can step through each answer individually. Raw
- * output stays fully inspectable; only the display name is prettified
- * (tooltip holds the raw id).
+ * section, so the reader can step through each answer individually. The strip
+ * pins under the section nav while a long answer is being read
+ * (see StageTabs.css / useStickyTabs). Raw output stays fully inspectable;
+ * only the display name is prettified (tooltip holds the raw id).
  */
 export default function Stage1({ responses, onUserReading }) {
+  const { rootRef, listRef, onValueChange } = useStickyTabs(onUserReading);
+
   if (!responses || responses.length === 0) {
     return null;
   }
@@ -29,11 +34,13 @@ export default function Stage1({ responses, onUserReading }) {
       </div>
 
       <Tabs.Root
+        ref={rootRef}
+        className="tabs-root"
         defaultValue="tab-0"
         orientation="horizontal"
-        onValueChange={onUserReading}
+        onValueChange={onValueChange}
       >
-        <Tabs.List className="tabs">
+        <Tabs.List ref={listRef} className="tabs">
           {responses.map((resp, index) => (
             <Tabs.Trigger
               key={index}

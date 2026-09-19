@@ -85,10 +85,20 @@
     background var(--transition-fast);
 }
 
+/* ── Shared offset ────────────────────────────────────────────────────────
+ * Height of the space the sticky nav occupies at the top of the scrollport
+ * (its `top` inset + its own height + a small gap). Everything that must
+ * clear the nav — jump targets, the pinned stage tab strips — reads this one
+ * variable so the breakpoints below are the single source of truth. */
+
+.chat-interface {
+  --stage-nav-offset: 60px;
+}
+
 /* Jump targets clear the nav when scrolled into view. */
 .stage-anchor,
 .question-anchor {
-  scroll-margin-top: 64px;
+  scroll-margin-top: calc(var(--stage-nav-offset) + 4px);
 }
 
 .question-anchor:focus {
@@ -96,6 +106,10 @@
 }
 
 @media (max-width: 900px) {
+  .chat-interface {
+    --stage-nav-offset: 44px;
+  }
+
   .stage-nav {
     top: 0;
     border-radius: 0;
@@ -165,6 +179,11 @@
  * compact rail without overlapping the reading column. */
 
 @media (min-width: 1440px) {
+  /* The nav leaves the flow here, so only a small breathing gap remains. */
+  .chat-interface {
+    --stage-nav-offset: 8px;
+  }
+
   .stage-nav {
     position: fixed;
     top: 50%;

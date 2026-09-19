@@ -1,0 +1,84 @@
+/* Tab strip shared by Stage I (Deliberation) and Stage II (Peer Review).
+ *
+ * The strip is `position: sticky` inside the message scroller and pins just
+ * below the section jump-nav (`--stage-nav-offset`, defined in StageNav.css
+ * per breakpoint). Its containing block is the Radix `Tabs.Root`, so it
+ * releases on its own once the stage's content has scrolled away.
+ *
+ * Overflow is a single horizontally-scrolling row — never wrapped — so the
+ * pinned strip stays one line tall however many members the council has. */
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+
+:is(.stage1, .stage2) {
+  /* Lands the strip right under the nav when a tab switch re-aligns the view
+     (see useStickyTabs). */
+  .tabs-root {
+    scroll-margin-top: var(--stage-nav-offset, 8px);
+  }
+
+  .tabs {
+    position: sticky;
+    top: var(--stage-nav-offset, 8px);
+    z-index: 5;
+    display: flex;
+    gap: 4px;
+    margin-bottom: 4px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    background: var(--bg-subtle);
+    /* Paints the stage background over the few pixels between the nav and
+       the pinned strip, so scrolling text doesn't show through the gap. */
+    box-shadow: 0 -9px 0 var(--bg-subtle);
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab {
+    flex-shrink: 0;
+    padding: 8px 12px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-family: var(--font-body);
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+      color var(--transition-fast),
+      border-bottom-color var(--transition-fast);
+
+    &:hover { color: var(--text-primary); }
+
+    &[data-state="active"] {
+      color: var(--accent-text);
+      border-bottom-color: var(--gold-line);
+      font-weight: 600;
+    }
+  }
+
+  .duration-badge {
+    margin-left: 6px;
+    font-size: 11px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+  }
+
+  .tab[data-state="active"] .duration-badge {
+    color: var(--accent-text);
+  }
+
+  .tab-content {
+    padding: 16px 4px 4px;
+    margin-bottom: 16px;
+  }
+}

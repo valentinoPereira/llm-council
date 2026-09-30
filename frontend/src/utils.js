@@ -9,7 +9,7 @@ export function formatDuration(durationMs) {
  * well-known fragments (providers/acronyms) cased for print rather than dev.
  *
  *   "moonshotai/kimi-k3"      → "Kimi K3"
- *   "openai/gpt-6-sol-pro"  → "GPT-6 Sol Pro"
+ *   "openai/gpt-6.1-sol"    → "GPT-6.1 Sol"
  *   "google/gemini-3.7-flash"→ "Gemini 3.7 Flash"
  *   "anthropic/claude-opus-5"→ "Claude Opus 5"
  *   "z-ai/glm-5.3"           → "GLM 5.3"
@@ -20,7 +20,7 @@ const ACRONYM_FRAGMENTS = new Set([
 
 const KNOWN_RENAMES = {
   'kimi-k3': 'Kimi K3',
-  'gpt-6-sol-pro': 'GPT-6 Sol Pro',
+  'gpt-6.1-sol': 'GPT-6.1 Sol',
   'gemini-3.7-flash': 'Gemini 3.7 Flash',
   'claude-opus-5': 'Claude Opus 5',
   'glm-5.3': 'GLM 5.3',

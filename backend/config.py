@@ -18,7 +18,7 @@ NEURALWATT_BASE_URL = os.getenv(
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
     "moonshotai/kimi-k3",
-    "openai/gpt-5.6-sol",
+    "openai/gpt-6.1-sol",
     "x-ai/grok-4.6",
     "anthropic/claude-opus-5",
 ]

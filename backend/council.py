@@ -6,7 +6,6 @@ import time
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import neuralwatt
 from .config import (
     CHAIRMAN_MODEL,
     CHAIRMAN_TIMEOUT_S,
@@ -169,8 +168,9 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
-        session_id: OpenRouter session id (conversation grouping; not sent to
-            NeuralWatt, which has no session concept)
+        session_id: OpenRouter session id (conversation grouping; sent on
+            the chairman leg too, so the session ledger carries the full
+            conversation cost)
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -205,18 +205,25 @@ Provide a clear, well-reasoned final answer that represents the council's collec
 
     messages = [{"role": "user", "content": chairman_prompt}]
 
-    # Query the chairman model with a hard timeout. The SDK timeout applies
+    # Query the chairman model through OpenRouter with the conversation's
+    # session id, plus a hard wall-clock timeout. The SDK timeout applies
     # per request/response lifecycle and can be beaten by providers that
-    # drip keepalive data slowly; wait_for enforces a wall-clock ceiling.
-    # There is no fallback model: on failure or timeout, stage 3 degrades
-    # gracefully below.
+    # drip keepalive data slowly; wait_for enforces the ceiling. The shared
+    # SDK client retries 429/5xx/connection errors. There is no fallback
+    # model: on failure or timeout, stage 3 degrades gracefully below.
     start = time.perf_counter()
     primary_model = CHAIRMAN_MODEL
     response = None
 
     try:
         response = await asyncio.wait_for(
-            neuralwatt.query_model(primary_model, messages, stage="stage3"),
+            query_model(
+                primary_model,
+                messages,
+                stage="stage3",
+                timeout=CHAIRMAN_TIMEOUT_S,
+                session_id=session_id,
+            ),
             timeout=CHAIRMAN_TIMEOUT_S,
         )
     except asyncio.TimeoutError:

@@ -93,36 +93,34 @@ def make_router():
     return handler
 
 
-def make_neuralwatt_router(content: str = "Final synthesis from chairman."):
-    """Mock NeuralWatt router serving the stage-3 chairman synthesis.
+def make_chairman_error_router(status: int):
+    """Mock OpenRouter router that fails only chairman (stage 3) prompts.
 
-    NeuralWatt is only ever called for the chairman leg, so every request it
-    sees is a stage-3 chairman prompt. Returns an OpenAI-shaped completion.
+    Council models and title generation still succeed, so the test can
+    assert stage 3 degrades gracefully on its own.
     """
     async def handler(request: httpx.Request) -> httpx.Response:
         body = request.read()
         data = json.loads(body)
+        user_msg = data["messages"][-1]["content"]
+        # Match the chairman by its prompt opening, not a "Chairman"
+        # substring: a user message like "Chairman failure test" would
+        # otherwise 500 every stage-1/2 prompt too.
+        if user_msg.startswith("You are the Chairman"):
+            return httpx.Response(status, json={
+                "error": {"message": "upstream boom", "type": "server_error", "code": "error"},
+            })
         return httpx.Response(200, json={
-            "id": "mock-neuralwatt-completion",
+            "id": "mock-completion",
             "object": "chat.completion",
             "created": 0,
             "model": data["model"],
             "choices": [{
                 "index": 0,
-                "message": {"role": "assistant", "content": content},
+                "message": {"role": "assistant", "content": "Response from council."},
                 "finish_reason": "stop",
             }],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-        })
-
-    return handler
-
-
-def make_neuralwatt_error_router(status: int):
-    """Mock NeuralWatt router that always fails (used for the graceful-error test)."""
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(status, json={
-            "error": {"message": "upstream boom", "type": "server_error", "code": "error"},
+            "system_fingerprint": "mock-fingerprint",
         })
 
     return handler
@@ -142,21 +140,9 @@ async def main() -> int:
     original_get_client = orouter.get_client
     orouter.get_client = lambda: mock_sdk
 
-    # Stage 3 (chairman) now goes through NeuralWatt, not OpenRouter. Inject
-    # an OpenAI SDK client backed by a NeuralWatt mock transport.
-    from openai import AsyncOpenAI
-    from backend import neuralwatt
-    nw_http = httpx.AsyncClient(
-        transport=httpx.MockTransport(make_neuralwatt_router()), timeout=10.0
-    )
-    nw_client = AsyncOpenAI(
-        base_url="https://api.neuralwatt.com/v1",
-        api_key="test",
-        http_client=nw_http,
-        max_retries=0,
-    )
-    original_nw_get_client = neuralwatt.get_client
-    neuralwatt.get_client = lambda: nw_client
+    # The chairman (stage 3) goes through OpenRouter like every other leg,
+    # so the single mock above serves the whole pipeline — including the
+    # "Chairman" branch in make_router().
     try:
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as http:
             # Create a conversation
@@ -223,8 +209,8 @@ async def main() -> int:
                 assert "parsed_ranking" in entry, entry
             print("OK  parsed_ranking present in stage2 results")
 
-            # OpenRouter was actually called
-            assert "moonshotai/kimi-k3" in captured, "chairman not called"
+            # OpenRouter was actually called (all stages + title + chairman)
+            assert cfg.CHAIRMAN_MODEL in captured, "chairman not called"
             assert cfg.TITLE_MODEL in captured, "title model not called"
             council_models = set(cfg.COUNCIL_MODELS)
             assert council_models.issubset(captured.keys()), \
@@ -235,7 +221,6 @@ async def main() -> int:
             for m in council_models:
                 assert len(captured[m]) == 2, f"{m} called {len(captured[m])} times"
             print("OK  stage 1 + stage 2 each called once per model")
-
             # Every request (all stages + title gen) carried the conversation's
             # OpenRouter session id: one conversation = one session.
             expected_sid = f"llm-council-{cid}"
@@ -283,29 +268,30 @@ async def main() -> int:
             print(f"OK  streaming requests used session_id={expected_sid2} "
                   f"({len(sid2_entries)} requests)")
 
-            # 15) Chairman (NeuralWatt) failure -> graceful error, NO
-            #     OpenRouter failover. Regression test proving the removed
-            #     vice-chairman failover is really gone: a NeuralWatt 500
-            #     must not fall through to any OpenRouter chairman call; the
+            # 15) Chairman failure -> graceful error, NO failover model.
+            #     Regression test proving there is no vice-chairman: a
+            #     chairman 500 must not fall through to any other model; the
             #     run completes with a friendly error and stage1/2 persist.
-            fail_nw_http = httpx.AsyncClient(
-                transport=httpx.MockTransport(make_neuralwatt_error_router(500)),
+            fail_http = httpx.AsyncClient(
+                transport=httpx.MockTransport(make_chairman_error_router(500)),
                 timeout=10.0,
             )
-            fail_nw_client = AsyncOpenAI(
-                base_url="https://api.neuralwatt.com/v1",
-                api_key="test",
-                http_client=fail_nw_http,
-                max_retries=0,
+            from openrouter import OpenRouter
+            # Build the failing SDK client with the app's retry config so
+            # the retry window stays bounded (a bare OpenRouter() falls back
+            # to the SDK default: unbounded-exponential backoff for 1h).
+            fail_sdk = OpenRouter(
+                api_key="test-key", async_client=fail_http,
+                retry_config=orouter._RETRY_CONFIG,
             )
-            old_nw_gc = neuralwatt.get_client
-            neuralwatt.get_client = lambda: fail_nw_client
+            old_gc = orouter.get_client
+            orouter.get_client = lambda: fail_sdk
             try:
                 r = await http.post("/api/conversations", json={})
                 cid5 = r.json()["id"]
                 r = await http.post(
                     f"/api/conversations/{cid5}/message/stream",
-                    json={"content": "NeuralWatt failure test"},
+                    json={"content": "Chairman failure test"},
                 )
                 assert r.status_code == 200, r.text
                 body = b""
@@ -320,21 +306,14 @@ async def main() -> int:
                 assert stage3_data["data"].get("error"), "expected error field in stage3 result"
                 assert stage3_data["data"]["response"] is None
                 assert stage3_data["data"]["model"] == cfg.CHAIRMAN_MODEL, stage3_data
-
-                # The OpenRouter leg must never see a chairman model request.
-                chairman_through_openrouter = [m for m in captured if m == cfg.CHAIRMAN_MODEL]
-                assert chairman_through_openrouter == [], \
-                    f"OpenRouter chairman call made: {chairman_through_openrouter}"
-                print("OK  NeuralWatt failure -> graceful error, no OpenRouter chairman call")
+                print("OK  chairman failure -> graceful error, no failover model")
             finally:
-                await fail_nw_http.aclose()
-                neuralwatt.get_client = old_nw_gc
+                await fail_http.aclose()
+                orouter.get_client = old_gc
 
     finally:
         orouter.get_client = original_get_client
-        neuralwatt.get_client = original_nw_get_client
         await mock_http.aclose()
-        await nw_http.aclose()
         # The httpx ASGI transport in this test does not trigger the
         # lifespan shutdown that normally closes the DB. Close it here
         # before deleting the sandbox to avoid a hung connection thread.

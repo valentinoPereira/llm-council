@@ -8,13 +8,6 @@ load_dotenv()
 # OpenRouter API key
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-# NeuralWatt API key — used only by the Chairman model (stage 3), which is
-# called directly via the OpenAI SDK instead of through OpenRouter.
-NEURALWATT_API_KEY = os.getenv("NEURALWATT_API_KEY")
-NEURALWATT_BASE_URL = os.getenv(
-    "NEURALWATT_BASE_URL", "https://api.neuralwatt.com/v1"
-)
-
 # Council members - list of OpenRouter model identifiers
 COUNCIL_MODELS = [
     "moonshotai/kimi-k3",
@@ -30,10 +23,12 @@ COUNCIL_MODELS = [
 # classifier and thinking would only waste latency/cost.
 REASONING_EFFORT = "high"
 
-# Chairman model — synthesizes final response. Runs on NeuralWatt
-# (OpenAI-compatible API) with model id "glm-5.3". There is no fallback
-# model: if NeuralWatt fails or times out, stage 3 degrades gracefully.
-CHAIRMAN_MODEL = "glm-5.3"
+# Chairman model — synthesizes final response, called through OpenRouter
+# like every other model so a conversation's full cost lands in one
+# OpenRouter session. There is no fallback model: if the chairman fails or
+# times out (the SDK retries 429/5xx/connection errors first), stage 3
+# degrades gracefully.
+CHAIRMAN_MODEL = "z-ai/glm-5.3"
 
 # Title generation model — fast and cheap, called through OpenRouter after
 # the first user message to produce the conversation title + category.

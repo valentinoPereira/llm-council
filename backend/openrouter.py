@@ -31,8 +31,10 @@ _DEFAULT_TIMEOUT_S = 120.0
 # Retry policy (SDK-managed):
 # - Retry on 429 (rate limited) and 5xx (transient server errors).
 # - Retry on connection-level network errors.
-# - Exponential backoff starting at 500ms, bounded to ~2.5s total, which
-#   approximates the previous "max 2 attempts" policy.
+# - Exponential backoff starting at 500ms, capped at 2s per sleep, with the
+#   whole retry window bounded to ~8s of elapsed time so a persistently
+#   failing chairman (stage 3) degrades to its graceful error quickly
+#   instead of stalling the SSE stream for minutes.
 # Note: unlike the previous hand-rolled client, the SDK cannot distinguish
 # connect timeouts from read timeouts, so a read timeout may be retried once.
 _RETRY_CONFIG = RetryConfig(
@@ -41,7 +43,7 @@ _RETRY_CONFIG = RetryConfig(
         initial_interval=500,
         max_interval=2000,
         exponent=2.0,
-        max_elapsed_time=2500,
+        max_elapsed_time=8000,
     ),
     retry_connection_errors=True,
     status_codes_override=["429", "5XX"],
